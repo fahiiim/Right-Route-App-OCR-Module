@@ -23,7 +23,7 @@ The Right Route App OCR Module is a robust, enterprise-ready solution that lever
 
 ## System Architecture
 
-<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/0f51148e-c5a0-4bda-820b-95399def8903" />
+<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/263f0e2a-2d65-4998-853a-076be7be8715" />
 
 
 ---
