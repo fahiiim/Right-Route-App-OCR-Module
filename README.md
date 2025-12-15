@@ -507,5 +507,5 @@ This module processes documents through external services (AWS, OpenAI). Ensure 
 
 **Last Updated:** December 2025  
 **Repository:** [GitHub](https://github.com/fahiiim/Right-Route-App-OCR-Module)  
-**Maintained By:** [SparkTech Agency]
-**AI Engineer:** [Md. Fahim Sarker Mridul]
+**Maintained By:** SparkTech Agency
+**AI Engineer:** Md Fahim Sarker Mridul
