@@ -1,9 +1,32 @@
-# Right Route App - OCR Module
+<h1 align="center">Right Route App - OCR Module</h1>
+<div align="center">
 
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Code Quality](https://img.shields.io/badge/code%20quality-professional-brightgreen)](.)
 [![Last Updated](https://img.shields.io/badge/updated-Dec%202025-blue)](.)
+
+[![AWS](https://img.shields.io/badge/AWS-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/textract/)
+[![Amazon Textract](https://img.shields.io/badge/Amazon%20Textract-FF9900?style=for-the-badge&logo=amazon&logoColor=white)](.)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--3.5-412991?logo=openai&logoColor=white)](https://openai.com/)
+[![PyPDF2](https://img.shields.io/badge/PyPDF2-PDF%20Processing-red)](https://pypi.org/project/PyPDF2/)
+[![Pillow](https://img.shields.io/badge/Pillow-Image%20Processing-7EC3A8)](https://python-pillow.org/)
+
+[![Boto3](https://img.shields.io/badge/Boto3-AWS%20SDK-FF9900)](https://boto3.amazonaws.com/)
+[![Python Dotenv](https://img.shields.io/badge/python--dotenv-Env%20Management-9B59B6)](https://pypi.org/project/python-dotenv/)
+[![Requests](https://img.shields.io/badge/Requests-HTTP%20Client-2CA5E0)](https://requests.readthedocs.io/)
+
+[![OCR](https://img.shields.io/badge/OCR-Optical%20Character%20Recognition-4285F4)](.)
+[![AI](https://img.shields.io/badge/AI-Artificial%20Intelligence-FF6B6B)](.)
+[![NLP](https://img.shields.io/badge/NLP-Natural%20Language%20Processing-00B4D8)](.)
+[![PDF Processing](https://img.shields.io/badge/PDF-Processing-E83E8C)](.)
+
+[![Document Processing](https://img.shields.io/badge/Document-Processing-6A0DAD)](.)
+[![Route Extraction](https://img.shields.io/badge/Route-Extraction-28A745)](.)
+[![Structured Data](https://img.shields.io/badge/Structured-Data-FF6B35)](.)
+[![REST API Ready](https://img.shields.io/badge/REST%20API-Ready-003366)](.)
+
+</div>
 
 > **Professional-grade OCR solution for automated route extraction from permit documents and images**
 
