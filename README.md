@@ -23,54 +23,8 @@ The Right Route App OCR Module is a robust, enterprise-ready solution that lever
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    User Application                             │
-└────────────────────┬────────────────────────────────────────────┘
-                     │
-        ┌────────────▼────────────┐
-        │   OCR Module Entry      │
-        │   (main.py)             │
-        └────────────┬────────────┘
-                     │
-        ┌────────────▼────────────────────────────────┐
-        │  Document Type Validation & Preprocessing   │
-        │  • File format verification                 │
-        │  • Size and permission checks               │
-        └────────┬──────────────────────────────────┘
-                 │
-    ┌────────────┴──────────────────┐
-    │                               │
-┌───▼──────────┐          ┌────────▼──────────┐
-│   PDF Files  │          │  Image Files      │
-│              │          │                   │
-│ PyPDF2       │          │ Direct Read       │
-│ Extraction   │          │                   │
-└───┬──────────┘          └────────┬──────────┘
-    │                              │
-    └──────────────┬───────────────┘
-                   │
-        ┌──────────▼──────────────┐
-        │  AWS Textract           │
-        │  Text Extraction        │
-        │  (detect_document_text) │
-        └──────────┬──────────────┘
-                   │
-        ┌──────────▼──────────────────────┐
-        │  OpenAI GPT-3.5                 │
-        │  Route Information Extraction   │
-        │  • Start Location               │
-        │  • End Location                 │
-        │  • Route Segments               │
-        └──────────┬──────────────────────┘
-                   │
-        ┌──────────▼──────────────────┐
-        │  JSON Output Generation     │
-        │  • Route Metadata           │
-        │  • Confidence Metrics       │
-        │  • Structured Response      │
-        └──────────────────────────────┘
-```
+<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/0f51148e-c5a0-4bda-820b-95399def8903" />
+
 
 ---
 
