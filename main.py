@@ -36,6 +36,59 @@ openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'}
 
+# State abbreviations mapping
+STATE_ABBREVIATIONS = {
+    'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
+    'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
+    'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa',
+    'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+    'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri',
+    'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+    'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio',
+    'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+    'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
+    'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
+}
+
+# Direction abbreviations mapping
+DIRECTION_ABBREVIATIONS = {
+    'N': 'North',
+    'S': 'South',
+    'E': 'East',
+    'W': 'West',
+    'NB': 'Northbound',
+    'SB': 'Southbound',
+    'EB': 'Eastbound',
+    'WB': 'Westbound'
+}
+
+
+def expand_abbreviations(text):
+    """Expand state, direction, and route abbreviations to full names"""
+    if not text:
+        return text
+    
+    import re
+    
+    result = text
+    
+    # Expand state abbreviations (match word boundaries for state codes)
+    for abbr, full_name in STATE_ABBREVIATIONS.items():
+        # Match state abbreviations with word boundaries and comma/space
+        patterns = [
+            (rf'\b{abbr}\b(?=[,\s]|$)', full_name),  # For standalone state codes
+            (rf', {abbr}(?=[,\s]|$)', f', {full_name}'),  # After comma
+        ]
+        for pattern, replacement in patterns:
+            result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    
+    # Expand direction abbreviations (match word boundaries)
+    for abbr, full_name in DIRECTION_ABBREVIATIONS.items():
+        pattern = rf'\b{abbr}\b'
+        result = re.sub(pattern, full_name, result, flags=re.IGNORECASE)
+    
+    return result
+
 
 def allowed_file(filename):
     """Check if file extension is allowed"""
@@ -135,6 +188,19 @@ Return ONLY a valid JSON object with these three fields. If any information is n
                     "route_segments": [],
                     "raw_response": response_text
                 }
+        
+        # Expand abbreviations in the extracted route information
+        if route_info.get("start_location"):
+            route_info["start_location"] = expand_abbreviations(route_info["start_location"])
+        
+        if route_info.get("end_location"):
+            route_info["end_location"] = expand_abbreviations(route_info["end_location"])
+        
+        if route_info.get("route_segments"):
+            route_info["route_segments"] = [
+                expand_abbreviations(segment) if isinstance(segment, str) else segment
+                for segment in route_info["route_segments"]
+            ]
         
         return route_info
         
