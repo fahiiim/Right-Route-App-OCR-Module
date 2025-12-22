@@ -90,6 +90,18 @@ def expand_abbreviations(text):
     return result
 
 
+def expand_abbreviations_in_dict(obj):
+    """Recursively expand abbreviations in dictionary/list structures"""
+    if isinstance(obj, dict):
+        return {k: expand_abbreviations_in_dict(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [expand_abbreviations_in_dict(item) for item in obj]
+    elif isinstance(obj, str):
+        return expand_abbreviations(obj)
+    else:
+        return obj
+
+
 def allowed_file(filename):
     """Check if file extension is allowed"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -142,21 +154,56 @@ def extract_text_from_document(file_path, document_name):
         raise Exception(f"Error extracting text from document: {str(e)}")
 
 
+def detect_permit_type(extracted_text):
+    """Detect the type of permit document"""
+    text_lower = extracted_text.lower()
+    
+    # Check for Overdimension/Oversize/Overweight permits
+    if any(keyword in text_lower for keyword in ['overdimension', 'superload', 'oversize', 'overweight', 'department of transportation']):
+        return 'overdimension'
+    
+    # Default to generic permit type
+    return 'generic'
+
+
 def extract_route_information(extracted_text):
     """Use OpenAI to extract route information from OCR text"""
     try:
-        prompt = f"""
+        # Detect permit type
+        permit_type = detect_permit_type(extracted_text)
+        
+        # Use specialized prompt based on permit type
+        if permit_type == 'overdimension':
+            prompt = f"""
+You are an expert at extracting route information from Overdimension Superload, Oversize, and Overweight permits.
+
+From the provided permit document text, extract the following information in JSON format:
+
+1. start_location: The starting location/route with intersection or city details (e.g., "IA-9 Eastbound at A 10 Intersection (Lyon), State Border of South Dakota")
+2. end_location: The ending location/route with intersection or city details (e.g., "B62 at Quail Ave Intersection (Hancock)")
+3. route_segments: A sequential array of route segments as simple strings. Extract the main routes in order as they appear in the route table/section. Each should include the route code and any relevant location or direction details (e.g., "IA-9 Eastbound at A 10 Intersection (Lyon)", "US-75 Southbound", "IA-4 Southbound (Indiana Emmetsburg at Broadway)"). Do NOT include turning instructions or mileage - just route identifiers with location context.
+4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Loads")
+
+Document text:
+{extracted_text}
+
+Return ONLY a valid JSON object with these four fields. Use null for any fields not found in the document.
+"""
+        else:
+            # Generic prompt for other permit types
+            prompt = f"""
 You are an expert at extracting route information from permit documents and travel documents.
 
 From the provided document text, extract the following information in JSON format:
 1. start_location: The starting location/intersection with city and state (e.g., "Main St & 5th Ave, New York, NY")
 2. end_location: The ending location/intersection with city and state
 3. route_segments: An ordered array of route segments showing the path from start to end
+4. permit_type: The type of permit if identifiable
 
 Document text:
 {extracted_text}
 
-Return ONLY a valid JSON object with these three fields. If any information is not found, use null for that field.
+Return ONLY a valid JSON object with these fields. If any information is not found, use null for that field.
 """
         
         response = openai_client.chat.completions.create(
@@ -166,7 +213,7 @@ Return ONLY a valid JSON object with these three fields. If any information is n
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
-            max_tokens=1000
+            max_tokens=2000
         )
         
         # Parse the response
@@ -189,18 +236,8 @@ Return ONLY a valid JSON object with these three fields. If any information is n
                     "raw_response": response_text
                 }
         
-        # Expand abbreviations in the extracted route information
-        if route_info.get("start_location"):
-            route_info["start_location"] = expand_abbreviations(route_info["start_location"])
-        
-        if route_info.get("end_location"):
-            route_info["end_location"] = expand_abbreviations(route_info["end_location"])
-        
-        if route_info.get("route_segments"):
-            route_info["route_segments"] = [
-                expand_abbreviations(segment) if isinstance(segment, str) else segment
-                for segment in route_info["route_segments"]
-            ]
+        # Expand abbreviations in the entire extracted route information (recursive)
+        route_info = expand_abbreviations_in_dict(route_info)
         
         return route_info
         
