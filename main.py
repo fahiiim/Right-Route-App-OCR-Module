@@ -5,9 +5,10 @@ import boto3
 import base64
 from pathlib import Path
 from dotenv import load_dotenv
+from botocore.config import Config
 from openai import OpenAI
 try:
-    from PyPDF2 import PdfReader
+    import fitz  # PyMuPDF
     PDF_SUPPORT = True
 except ImportError:
     PDF_SUPPORT = False
@@ -15,24 +16,64 @@ except ImportError:
 # Load environment variables
 load_dotenv()
 
-# Initialize AWS Textract client
-textract_client = boto3.client(
-    'textract',
-    region_name=os.getenv('AWS_REGION'),
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+# Lazy initialization - clients created on first use
+_textract_client = None
+_s3_client = None
+_openai_client = None
+
+# Boto3 config with timeouts to prevent hanging
+_boto_config = Config(
+    connect_timeout=5,
+    read_timeout=30,
+    retries={'max_attempts': 2}
 )
 
-# Initialize S3 client
-s3_client = boto3.client(
-    's3',
-    region_name=os.getenv('AWS_REGION'),
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-)
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+def get_textract_client():
+    """Lazy initialization of Textract client"""
+    global _textract_client
+    if _textract_client is None:
+        _textract_client = boto3.client(
+            'textract',
+            region_name=os.getenv('AWS_REGION'),
+            aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
+            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+            config=_boto_config
+        )
+    return _textract_client
+
+
+def get_s3_client():
+    """Lazy initialization of S3 client"""
+    global _s3_client
+    if _s3_client is None:
+        _s3_client = boto3.client(
+            's3',
+            region_name=os.getenv('AWS_REGION'),
+            aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
+            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+            config=_boto_config
+        )
+    return _s3_client
+
+
+def get_openai_client():
+    """Lazy initialization of OpenAI client"""
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+    return _openai_client
+
+
+# Backward compatibility aliases
+def __getattr__(name):
+    if name == 'textract_client':
+        return get_textract_client()
+    if name == 's3_client':
+        return get_s3_client()
+    if name == 'openai_client':
+        return get_openai_client()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'}
 
@@ -113,21 +154,23 @@ def extract_text_from_document(file_path, document_name):
         # Handle PDF files - extract text directly from PDF
         if file_path.lower().endswith('.pdf'):
             if not PDF_SUPPORT:
-                raise Exception("PDF support requires 'PyPDF2' library. Install with: pip install PyPDF2")
+                raise Exception("PDF support requires 'PyMuPDF' library. Install with: pip install pymupdf")
             
             print("  Extracting text from PDF...")
             try:
-                # Try PyPDF2 extraction first
-                pdf_reader = PdfReader(file_path)
+                # Try PyMuPDF extraction first (handles encrypted PDFs better)
+                pdf_doc = fitz.open(file_path)
                 pdf_text = ""
-                for page in pdf_reader.pages[:1]:  # Get first page only
-                    pdf_text += page.extract_text()
+                for page_num in range(min(1, len(pdf_doc))):  # Get first page only
+                    page = pdf_doc[page_num]
+                    pdf_text += page.get_text()
+                pdf_doc.close()
                 
                 if pdf_text.strip():
-                    print("  ✅ PDF text extracted with PyPDF2")
+                    print("  ✅ PDF text extracted with PyMuPDF")
                     return pdf_text, None
             except Exception as e:
-                print(f"  ⚠️  PyPDF2 extraction failed: {str(e)}")
+                print(f"  ⚠️  PyMuPDF extraction failed: {str(e)}")
                 print("  Falling back to AWS Textract...")
             
             # Fallback to AWS Textract for PDFs
@@ -140,7 +183,7 @@ def extract_text_from_document(file_path, document_name):
         
         # Use synchronous detection with Textract
         print("  Calling AWS Textract detect_document_text...")
-        response = textract_client.detect_document_text(Document={'Bytes': document_bytes})
+        response = get_textract_client().detect_document_text(Document={'Bytes': document_bytes})
         
         # Extract text from response
         extracted_text = '\n'.join([block['Text'] for block in response['Blocks'] if block['BlockType'] == 'LINE'])
@@ -206,7 +249,7 @@ Document text:
 Return ONLY a valid JSON object with these fields. If any information is not found, use null for that field.
 """
         
-        response = openai_client.chat.completions.create(
+        response = get_openai_client().chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an OCR data extraction specialist. Always respond with valid JSON only."},
