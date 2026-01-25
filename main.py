@@ -114,19 +114,23 @@ def expand_abbreviations(text):
     result = text
     
     # Expand state abbreviations (match word boundaries for state codes)
+    # IMPORTANT: Only match uppercase state abbreviations to avoid matching lowercase words like "in"
     for abbr, full_name in STATE_ABBREVIATIONS.items():
-        # Match state abbreviations with word boundaries and comma/space
+        # Match state abbreviations ONLY when uppercase (to avoid matching "in" as "IN")
+        # This handles patterns like ", IN", " IN ", "(IN)", "IN " etc. but NOT lowercase "in"
         patterns = [
-            (rf'\b{abbr}\b(?=[,\s]|$)', full_name),  # For standalone state codes
-            (rf', {abbr}(?=[,\s]|$)', f', {full_name}'),  # After comma
+            (rf'\b{abbr}\b(?=[,\s\)]|$)', full_name),  # For standalone state codes
+            (rf', {abbr}(?=[,\s\)]|$)', f', {full_name}'),  # After comma
         ]
         for pattern, replacement in patterns:
-            result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+            # Do NOT use IGNORECASE flag - match only uppercase abbreviations
+            result = re.sub(pattern, replacement, result)
     
-    # Expand direction abbreviations (match word boundaries)
+    # Expand direction abbreviations (match word boundaries, only uppercase to avoid false positives)
     for abbr, full_name in DIRECTION_ABBREVIATIONS.items():
         pattern = rf'\b{abbr}\b'
-        result = re.sub(pattern, full_name, result, flags=re.IGNORECASE)
+        # Do NOT use IGNORECASE flag for direction abbreviations either
+        result = re.sub(pattern, full_name, result)
     
     return result
 

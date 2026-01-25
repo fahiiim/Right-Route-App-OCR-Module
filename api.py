@@ -20,6 +20,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# In-memory storage for extracted OCR results
+extracted_data = {}
+
 
 @app.post("/api/ocr/extract")
 async def extract_route_information(file: UploadFile = File(...)):
@@ -53,6 +56,13 @@ async def extract_route_information(file: UploadFile = File(...)):
             if result is None:
                 raise HTTPException(status_code=500, detail="Failed to process document")
             
+            # Store the extracted data using filename as key
+            extracted_data[result["filename"]] = {
+                "filename": result["filename"],
+                "route_information": result["route_information"],
+                "extracted_text": result.get("extracted_text", "")
+            }
+            
             return JSONResponse(
                 status_code=200,
                 content={
@@ -72,6 +82,76 @@ async def extract_route_information(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")
     
+
+
+@app.get("/api/ocr/extract/{filename}")
+async def get_extracted_data(filename: str):
+    """
+    Retrieve previously extracted OCR data by filename.
+    
+    - **filename**: The filename of the document to retrieve
+    - **Returns**: The stored route information and extracted text
+    """
+    if filename not in extracted_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No extracted data found for filename: {filename}"
+        )
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "success": True,
+            "data": extracted_data[filename]
+        }
+    )
+
+
+@app.get("/api/ocr/list")
+async def list_extracted_documents():
+    """
+    List all extracted documents stored in memory.
+    
+    - **Returns**: List of all filenames with their extracted data
+    """
+    if not extracted_data:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "count": 0,
+                "documents": []
+            }
+        )
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "success": True,
+            "count": len(extracted_data),
+            "documents": list(extracted_data.keys()),
+            "data": extracted_data
+        }
+    )
+
+
+@app.get("/api/ocr/clear")
+async def clear_extracted_data():
+    """
+    Clear all stored extracted data from memory.
+    
+    - **Returns**: Confirmation message
+    """
+    count = len(extracted_data)
+    extracted_data.clear()
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "success": True,
+            "message": f"Cleared {count} documents from storage"
+        }
+    )
 
 
 @app.get("/")
