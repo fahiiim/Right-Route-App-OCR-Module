@@ -226,10 +226,40 @@ You are an expert at extracting route information from Overdimension Superload, 
 
 From the provided permit document text, extract the following information in JSON format:
 
-1. start_location: The starting location/route with intersection or city details (e.g., "IA-9 Eastbound at A 10 Intersection (Lyon), State Border of South Dakota")
-2. end_location: The ending location/route with intersection or city details (e.g., "B62 at Quail Ave Intersection (Hancock)")
-3. route_segments: A sequential array of route segments as simple strings. Extract the main routes in order as they appear in the route table/section. Each should include the route code and any relevant location or direction details (e.g., "IA-9 Eastbound at A 10 Intersection (Lyon)", "US-75 Southbound", "IA-4 Southbound (Indiana Emmetsburg at Broadway)"). Do NOT include turning instructions or mileage - just route identifiers with location context.
+1. start_location: The starting location formatted as "Route1 & Route2/Street, City, State (origin / border start)"
+   Example: "IA-9 & A10, Lyon, IA (origin / border start)"
+
+2. end_location: The ending location formatted as "Route1 & Route2/Street, City, State (destination)"
+   Example: "B62 & Quail Ave, Hancock, IA (destination)"
+
+3. route_segments: A sequential array of ALL intersection waypoints along the route. Each waypoint MUST be formatted as:
+   "Route1 & Route2/Street, City, State"
+   
+   CRITICAL FORMATTING RULES:
+   - Format each location as an INTERSECTION using "&" between two roads/routes
+   - Include the city name and two-letter state abbreviation (e.g., "IA", "MN", "SD")
+   - The first waypoint should match start_location
+   - The last waypoint should match end_location
+   - Parse route transitions to create intersection waypoints
+   - When a document says "START ON IA-9 EB AT A10 INTERSECTION (LYON)", format as "IA-9 & A10, Lyon, IA"
+   - When a document says "US-18 EB(IN SANBORN AT EASTERN ST)", format as "US-18 & Eastern St, Sanborn, IA"
+   - When a route changes (e.g., from IA-9 to US-75), create an intersection waypoint like "IA-9 & US-75, [City], IA"
+   - Infer the city names from context (county names, nearby cities mentioned, or known Iowa geography)
+   
+   Example input: "START ON IA-9 EB AT A10 INTERSECTION (LYON)(STATE BORDER OF SOUTH DAKOTA), US-75 SB, IA-9 EB(IN ROCK RAPIDS AT N UNION ST), US-59 SB, US-18 EB(IN SANBORN AT EASTERN ST)"
+   
+   Example output array:
+   [
+     "IA-9 & A10, Lyon, IA",
+     "IA-9 & US-75, Rock Rapids, IA",
+     "IA-9 & N Union St, Rock Rapids, IA",
+     "IA-9 & US-59, Sibley, IA",
+     "US-18 & Eastern St, Sanborn, IA"
+   ]
+
 4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Loads")
+
+IMPORTANT: The route_segments array should contain geocodable intersection addresses that can be plotted on a map. Each entry must have the format "Road1 & Road2, City, State" to enable accurate geolocation.
 
 Document text:
 {extracted_text}
@@ -242,10 +272,27 @@ Return ONLY a valid JSON object with these four fields. Use null for any fields 
 You are an expert at extracting route information from permit documents and travel documents.
 
 From the provided document text, extract the following information in JSON format:
-1. start_location: The starting location/intersection with city and state (e.g., "Main St & 5th Ave, New York, NY")
-2. end_location: The ending location/intersection with city and state
-3. route_segments: An ordered array of route segments showing the path from start to end
+
+1. start_location: The starting location formatted as "Route1 & Route2/Street, City, State (origin)"
+   Example: "Main St & 5th Ave, New York, NY (origin)"
+
+2. end_location: The ending location formatted as "Route1 & Route2/Street, City, State (destination)"
+   Example: "Broadway & 42nd St, New York, NY (destination)"
+
+3. route_segments: An ordered array of intersection waypoints along the route. Each MUST be formatted as:
+   "Road1 & Road2, City, State"
+   
+   This format is CRITICAL for accurate map geolocation. Create intersection waypoints at:
+   - The origin point
+   - Each route/road change or turn
+   - Key waypoints mentioned in the document
+   - The destination point
+   
+   Example: ["I-95 & Exit 42, Newark, NJ (origin)", "I-95 & I-287, Edison, NJ", "US-1 & Route 18, New Brunswick, NJ (destination)"]
+
 4. permit_type: The type of permit if identifiable
+
+IMPORTANT: Format all locations as geocodable intersections (Road1 & Road2, City, State) for accurate map plotting.
 
 Document text:
 {extracted_text}
@@ -254,7 +301,7 @@ Return ONLY a valid JSON object with these fields. If any information is not fou
 """
         
         response = get_openai_client().chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are an OCR data extraction specialist. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
