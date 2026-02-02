@@ -226,40 +226,57 @@ You are an expert at extracting route information from Overdimension Superload, 
 
 From the provided permit document text, extract the following information in JSON format:
 
-1. start_location: The starting location formatted as "Route1 & Route2/Street, City, State (origin / border start)"
-   Example: "IA-9 & A10, Lyon, IA (origin / border start)"
+1. start_location: The starting point as a GEOCODABLE address.
+   - Format: "Nearby City or Town, County, State" OR "Highway Exit Name, City, State"
+   - NEVER use mile post markers (MP) alone - convert them to the nearest city/town
+   - Example: "Sisseton, Roberts County, SD" instead of "I-29 & MP 252.65, Roberts, SD"
 
-2. end_location: The ending location formatted as "Route1 & Route2/Street, City, State (destination)"
-   Example: "B62 & Quail Ave, Hancock, IA (destination)"
+2. end_location: The ending point as a GEOCODABLE address.
+   - Same rules as start_location
 
-3. route_segments: A sequential array of ALL intersection waypoints along the route. Each waypoint MUST be formatted as:
-   "Route1 & Route2/Street, City, State"
+3. route_segments: A sequential array of GEOCODABLE waypoints. 
+
+   CRITICAL RULES FOR GEOCODABLE LOCATIONS:
    
-   CRITICAL FORMATTING RULES:
-   - Format each location as an INTERSECTION using "&" between two roads/routes
-   - Include the city name and two-letter state abbreviation (e.g., "IA", "MN", "SD")
-   - The first waypoint should match start_location
-   - The last waypoint should match end_location
-   - Parse route transitions to create intersection waypoints
-   - When a document says "START ON IA-9 EB AT A10 INTERSECTION (LYON)", format as "IA-9 & A10, Lyon, IA"
-   - When a document says "US-18 EB(IN SANBORN AT EASTERN ST)", format as "US-18 & Eastern St, Sanborn, IA"
-   - When a route changes (e.g., from IA-9 to US-75), create an intersection waypoint like "IA-9 & US-75, [City], IA"
-   - Infer the city names from context (county names, nearby cities mentioned, or known Iowa geography)
+   A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
+      - MP markers like "MP 252.65" are NOT geocodable
+      - Convert MP markers to the nearest city/town on that highway
+      - Example: "I-29 MP 252.65 in Roberts County" → "Sisseton, Roberts County, SD"
+      - Use your knowledge of highway geography to identify the nearest town
    
-   Example input: "START ON IA-9 EB AT A10 INTERSECTION (LYON)(STATE BORDER OF SOUTH DAKOTA), US-75 SB, IA-9 EB(IN ROCK RAPIDS AT N UNION ST), US-59 SB, US-18 EB(IN SANBORN AT EASTERN ST)"
+   B) HIGHWAY INTERSECTIONS/INTERCHANGES:
+      - When two highways meet (like I-29 & I-90), this is an INTERCHANGE
+      - Format as: "[Highway1] and [Highway2] Interchange, [Nearest City], [State]"
+      - Example: "I-29 and I-90 Interchange, Sioux Falls, SD"
+      - NEVER format as "I-29 & I-90, County, State" - this is NOT geocodable
    
-   Example output array:
-   [
-     "IA-9 & A10, Lyon, IA",
-     "IA-9 & US-75, Rock Rapids, IA",
-     "IA-9 & N Union St, Rock Rapids, IA",
-     "IA-9 & US-59, Sibley, IA",
-     "US-18 & Eastern St, Sanborn, IA"
-   ]
+   C) HIGHWAY AND LOCAL ROAD INTERSECTIONS:
+      - Format as: "[Highway] and [Road Name], [City], [State]"
+      - Example: "SD-11 and 26th Street, Sioux Falls, SD"
+   
+   D) STATE/COUNTY BORDER CROSSINGS:
+      - Use the nearest town to the border
+      - Example: "SD-MN Border on I-29" → "Sisseton, SD" (nearest town)
+   
+   E) COUNTY REFERENCES:
+      - Counties are NOT geocodable by themselves
+      - Always use a city/town within that county
+      - Example: "Minnehaha County" → "Sioux Falls, Minnehaha County, SD"
 
-4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Loads")
+   EXAMPLE TRANSFORMATION:
+   BAD (not geocodable):
+   - "I-29 & MP 252.65, Roberts, SD"
+   - "I-29 & I-90, Minnehaha, SD"
+   - "SD-42 & MP 378.17, Minnehaha, SD"
+   
+   GOOD (geocodable):
+   - "Sisseton, Roberts County, SD"
+   - "I-29 and I-90 Interchange, Sioux Falls, SD"
+   - "SD-42 near Hartford, Minnehaha County, SD"
 
-IMPORTANT: The route_segments array should contain geocodable intersection addresses that can be plotted on a map. Each entry must have the format "Road1 & Road2, City, State" to enable accurate geolocation.
+4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Single Trip")
+
+IMPORTANT: Every location in route_segments MUST be geocodable by Google Maps or similar services. Use city names, not mile posts or county names alone.
 
 Document text:
 {extracted_text}
@@ -273,26 +290,43 @@ You are an expert at extracting route information from permit documents and trav
 
 From the provided document text, extract the following information in JSON format:
 
-1. start_location: The starting location formatted as "Route1 & Route2/Street, City, State (origin)"
-   Example: "Main St & 5th Ave, New York, NY (origin)"
+1. start_location: The starting point as a GEOCODABLE address.
+   - Format: "City, State" OR "Street/Highway Intersection, City, State"
+   - NEVER use mile post markers (MP) alone
 
-2. end_location: The ending location formatted as "Route1 & Route2/Street, City, State (destination)"
-   Example: "Broadway & 42nd St, New York, NY (destination)"
+2. end_location: The ending point as a GEOCODABLE address.
 
-3. route_segments: An ordered array of intersection waypoints along the route. Each MUST be formatted as:
-   "Road1 & Road2, City, State"
+3. route_segments: An ordered array of GEOCODABLE waypoints along the route.
+
+   CRITICAL RULES FOR GEOCODABLE LOCATIONS:
    
-   This format is CRITICAL for accurate map geolocation. Create intersection waypoints at:
-   - The origin point
-   - Each route/road change or turn
-   - Key waypoints mentioned in the document
-   - The destination point
+   A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
+      - MP markers like "MP 252.65" are NOT geocodable
+      - Convert to nearest city/town: "I-29 MP 252" → "Sisseton, SD"
    
-   Example: ["I-95 & Exit 42, Newark, NJ (origin)", "I-95 & I-287, Edison, NJ", "US-1 & Route 18, New Brunswick, NJ (destination)"]
+   B) HIGHWAY INTERSECTIONS/INTERCHANGES:
+      - Format as: "[Highway1] and [Highway2] Interchange, [Nearest City], [State]"
+      - Example: "I-29 and I-90 Interchange, Sioux Falls, SD"
+      - NEVER use format like "I-29 & I-90, County, State"
+   
+   C) HIGHWAY AND LOCAL ROAD:
+      - Format: "[Highway] and [Road], [City], [State]"
+      - Example: "US-81 and Main Street, Madison, SD"
+   
+   D) COUNTY REFERENCES:
+      - Counties alone are NOT geocodable
+      - Use a city within the county instead
+
+   EXAMPLE:
+   BAD: "I-29 & MP 252.65, Roberts, SD"
+   GOOD: "Sisseton, Roberts County, SD"
+   
+   BAD: "I-90 & I-29, Minnehaha, SD"  
+   GOOD: "I-29 and I-90 Interchange, Sioux Falls, SD"
 
 4. permit_type: The type of permit if identifiable
 
-IMPORTANT: Format all locations as geocodable intersections (Road1 & Road2, City, State) for accurate map plotting.
+IMPORTANT: Every waypoint MUST be geocodable by map services. Use actual city/town names, not just highway mile markers or county names.
 
 Document text:
 {extracted_text}
