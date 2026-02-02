@@ -241,38 +241,48 @@ From the provided permit document text, extract the following information in JSO
    A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
       - MP markers like "MP 252.65" are NOT geocodable
       - Convert MP markers to the nearest city/town on that highway
-      - Example: "I-29 MP 252.65 in Roberts County" → "Sisseton, Roberts County, SD"
+      - Example: "I-29 MP 252.65 in Roberts County" → "Sisseton, SD"
       - Use your knowledge of highway geography to identify the nearest town
    
-   B) HIGHWAY INTERSECTIONS/INTERCHANGES:
-      - When two highways meet (like I-29 & I-90), this is an INTERCHANGE
-      - Format as: "[Highway1] and [Highway2] Interchange, [Nearest City], [State]"
-      - Example: "I-29 and I-90 Interchange, Sioux Falls, SD"
-      - NEVER format as "I-29 & I-90, County, State" - this is NOT geocodable
+   B) HIGHWAY INTERSECTIONS/INTERCHANGES - NEVER COMBINE TWO HIGHWAYS:
+      - NEVER put two highway names in ONE segment (e.g., "I-29 and I-90" is WRONG)
+      - When two highways meet, use ONLY the city/town name as the waypoint
+      - Example: Where I-29 meets I-90 → Just use "Sioux Falls, SD"
+      - The map will figure out the route between cities automatically
    
    C) HIGHWAY AND LOCAL ROAD INTERSECTIONS:
-      - Format as: "[Highway] and [Road Name], [City], [State]"
-      - Example: "SD-11 and 26th Street, Sioux Falls, SD"
+      - Format as: "[Road Name], [City], [State]"
+      - Example: "26th Street, Sioux Falls, SD"
+      - Or just use the city: "Sioux Falls, SD"
    
    D) STATE/COUNTY BORDER CROSSINGS:
       - Use the nearest town to the border
-      - Example: "SD-MN Border on I-29" → "Sisseton, SD" (nearest town)
+      - Example: "SD-MN Border on I-29" → "Sisseton, SD"
    
    E) COUNTY REFERENCES:
       - Counties are NOT geocodable by themselves
       - Always use a city/town within that county
-      - Example: "Minnehaha County" → "Sioux Falls, Minnehaha County, SD"
+      - Example: "Minnehaha County" → "Sioux Falls, SD"
+   
+   F) SINGLE HIGHWAY FORMAT (when needed):
+      - If you must mention a highway, use format: "[City] on [Highway], [State]"
+      - Example: "Sioux Falls on I-90, SD"
+      - NEVER combine multiple highways: "I-29 and I-90" is ALWAYS WRONG
 
    EXAMPLE TRANSFORMATION:
-   BAD (not geocodable):
+   BAD (not geocodable - causes wrong map points):
    - "I-29 & MP 252.65, Roberts, SD"
    - "I-29 & I-90, Minnehaha, SD"
+   - "I-29 and I-90 Interchange, Sioux Falls, SD"
+   - "SD-11 & SD-42, Minnehaha, SD"
    - "SD-42 & MP 378.17, Minnehaha, SD"
    
-   GOOD (geocodable):
-   - "Sisseton, Roberts County, SD"
-   - "I-29 and I-90 Interchange, Sioux Falls, SD"
-   - "SD-42 near Hartford, Minnehaha County, SD"
+   GOOD (geocodable - maps correctly):
+   - "Sisseton, SD"
+   - "Sioux Falls, SD"
+   - "Sioux Falls, SD"
+   - "Sioux Falls, SD"
+   - "Hartford, SD"
 
 4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Single Trip")
 
@@ -304,14 +314,14 @@ From the provided document text, extract the following information in JSON forma
       - MP markers like "MP 252.65" are NOT geocodable
       - Convert to nearest city/town: "I-29 MP 252" → "Sisseton, SD"
    
-   B) HIGHWAY INTERSECTIONS/INTERCHANGES:
-      - Format as: "[Highway1] and [Highway2] Interchange, [Nearest City], [State]"
-      - Example: "I-29 and I-90 Interchange, Sioux Falls, SD"
-      - NEVER use format like "I-29 & I-90, County, State"
+   B) HIGHWAY INTERSECTIONS - NEVER COMBINE TWO HIGHWAYS:
+      - NEVER put two highway names in ONE segment
+      - "I-29 and I-90" or "I-29 & I-90" is ALWAYS WRONG
+      - When highways meet, use ONLY the city name: "Sioux Falls, SD"
    
    C) HIGHWAY AND LOCAL ROAD:
-      - Format: "[Highway] and [Road], [City], [State]"
-      - Example: "US-81 and Main Street, Madison, SD"
+      - Just use the city: "Madison, SD"
+      - Or: "[City] on [Highway], [State]" - only ONE highway name
    
    D) COUNTY REFERENCES:
       - Counties alone are NOT geocodable
@@ -319,10 +329,13 @@ From the provided document text, extract the following information in JSON forma
 
    EXAMPLE:
    BAD: "I-29 & MP 252.65, Roberts, SD"
-   GOOD: "Sisseton, Roberts County, SD"
+   GOOD: "Sisseton, SD"
    
    BAD: "I-90 & I-29, Minnehaha, SD"  
-   GOOD: "I-29 and I-90 Interchange, Sioux Falls, SD"
+   GOOD: "Sioux Falls, SD"
+   
+   BAD: "I-29 and I-90 Interchange, Sioux Falls, SD"
+   GOOD: "Sioux Falls, SD"
 
 4. permit_type: The type of permit if identifiable
 
