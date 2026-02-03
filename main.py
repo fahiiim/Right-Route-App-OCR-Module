@@ -238,49 +238,41 @@ From the provided permit document text, extract the following information in JSO
 
    CRITICAL RULES FOR GEOCODABLE LOCATIONS:
    
-   ⚠️ MOST IMPORTANT RULE: NEVER PUT TWO HIGHWAYS IN ONE SEGMENT!
-   - WRONG: "I-29 and I-90, Sioux Falls, SD" (two highways = confuses map)
-   - WRONG: "I-29 & I-90 Interchange, Sioux Falls, SD" (still two highways)
-   - CORRECT: "Sioux Falls, SD" (just the city where highways meet)
-   
    A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
       - MP markers like "MP 252.65" are NOT geocodable
-      - Convert to the nearest city/town ONLY
-      - Example: "I-29 MP 252.65 in Roberts County" → "Sisseton, SD"
+      - Convert MP markers to the nearest city/town on that highway
+      - Example: "I-29 MP 252.65 in Roberts County" → "Sisseton, Roberts County, SD"
+      - Use your knowledge of highway geography to identify the nearest town
    
-   B) HIGHWAY INTERCHANGES (WHERE TWO HIGHWAYS MEET):
-      - NEVER combine two highway names in one waypoint
-      - Just use the CITY NAME where they intersect
-      - Example: "I-29 meets I-90" → "Sioux Falls, SD"
-      - Example: "I-90 meets SD-11" → "Brandon, SD" or "Sioux Falls, SD"
+   B) HIGHWAY INTERSECTIONS/INTERCHANGES:
+      - When two highways meet (like I-29 & I-90), this is an INTERCHANGE
+      - Format as: "[Highway1] and [Highway2] Interchange, [Nearest City], [State]"
+      - Example: "I-29 and I-90 Interchange, Sioux Falls, SD"
+      - NEVER format as "I-29 & I-90, County, State" - this is NOT geocodable
    
-   C) SINGLE HIGHWAY WITH EXIT OR STREET:
-      - Format: "[City], [State]" OR "[Street Name], [City], [State]"
-      - Example: "Exit 83, Sioux Falls, SD" or just "Sioux Falls, SD"
-      - Example: "26th Street, Sioux Falls, SD"
+   C) HIGHWAY AND LOCAL ROAD INTERSECTIONS:
+      - Format as: "[Highway] and [Road Name], [City], [State]"
+      - Example: "SD-11 and 26th Street, Sioux Falls, SD"
    
    D) STATE/COUNTY BORDER CROSSINGS:
-      - Use the nearest town name ONLY
-      - Example: "SD-MN Border on I-29" → "Sisseton, SD"
+      - Use the nearest town to the border
+      - Example: "SD-MN Border on I-29" → "Sisseton, SD" (nearest town)
    
    E) COUNTY REFERENCES:
-      - NEVER use county names as locations
-      - Always convert to the main city/town in that county
-      - Example: "Minnehaha County" → "Sioux Falls, SD"
-      - Example: "Roberts County" → "Sisseton, SD"
+      - Counties are NOT geocodable by themselves
+      - Always use a city/town within that county
+      - Example: "Minnehaha County" → "Sioux Falls, Minnehaha County, SD"
 
    EXAMPLE TRANSFORMATION:
-   BAD (causes wrong map points):
-   - "I-29 & MP 252.65, Roberts, SD" (has MP marker)
-   - "I-29 & I-90, Minnehaha, SD" (TWO highways together!)
-   - "I-90 & SD-11, Minnehaha, SD" (TWO highways together!)
-   - "SD-11 & SD-42, Minnehaha, SD" (TWO highways together!)
+   BAD (not geocodable):
+   - "I-29 & MP 252.65, Roberts, SD"
+   - "I-29 & I-90, Minnehaha, SD"
+   - "SD-42 & MP 378.17, Minnehaha, SD"
    
-   GOOD (accurate map points):
-   - "Sisseton, SD"
-   - "Sioux Falls, SD"
-   - "Brandon, SD"
-   - "Hartford, SD"
+   GOOD (geocodable):
+   - "Sisseton, Roberts County, SD"
+   - "I-29 and I-90 Interchange, Sioux Falls, SD"
+   - "SD-42 near Hartford, Minnehaha County, SD"
 
 4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Single Trip")
 
@@ -308,34 +300,29 @@ From the provided document text, extract the following information in JSON forma
 
    CRITICAL RULES FOR GEOCODABLE LOCATIONS:
    
-   ⚠️ MOST IMPORTANT RULE: NEVER PUT TWO HIGHWAYS/ROUTES IN ONE SEGMENT!
-   - WRONG: "I-29 and I-90, City, State" (two highways = wrong map point)
-   - WRONG: "US-81 & SD-34, City, State" (two routes = wrong map point)
-   - CORRECT: "Sioux Falls, SD" (just the city name)
+   A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
+      - MP markers like "MP 252.65" are NOT geocodable
+      - Convert to nearest city/town: "I-29 MP 252" → "Sisseton, SD"
    
-   A) MILE POST (MP) MARKERS - NEVER USE:
-      - Convert MP markers to nearest city/town ONLY
-      - "I-29 MP 252" → "Sisseton, SD"
+   B) HIGHWAY INTERSECTIONS/INTERCHANGES:
+      - Format as: "[Highway1] and [Highway2] Interchange, [Nearest City], [State]"
+      - Example: "I-29 and I-90 Interchange, Sioux Falls, SD"
+      - NEVER use format like "I-29 & I-90, County, State"
    
-   B) HIGHWAY INTERCHANGES:
-      - Just use the CITY NAME, not the highway names
-      - "I-29 meets I-90" → "Sioux Falls, SD"
-   
-   C) LOCATIONS FORMAT:
-      - Best: "City, State" (e.g., "Sioux Falls, SD")
-      - Also OK: "Street Name, City, State" (e.g., "Main Street, Madison, SD")
-      - NEVER: "Highway1 & Highway2, City, State"
+   C) HIGHWAY AND LOCAL ROAD:
+      - Format: "[Highway] and [Road], [City], [State]"
+      - Example: "US-81 and Main Street, Madison, SD"
    
    D) COUNTY REFERENCES:
-      - Convert to main city in that county
-      - "Minnehaha County" → "Sioux Falls, SD"
+      - Counties alone are NOT geocodable
+      - Use a city within the county instead
 
    EXAMPLE:
    BAD: "I-29 & MP 252.65, Roberts, SD"
-   GOOD: "Sisseton, SD"
+   GOOD: "Sisseton, Roberts County, SD"
    
    BAD: "I-90 & I-29, Minnehaha, SD"  
-   GOOD: "Sioux Falls, SD"
+   GOOD: "I-29 and I-90 Interchange, Sioux Falls, SD"
 
 4. permit_type: The type of permit if identifiable
 
