@@ -224,72 +224,100 @@ def extract_route_information(extracted_text):
             prompt = f"""
 You are an expert at extracting route information from Overdimension Superload, Oversize, and Overweight permits.
 
+IMPORTANT: Analyze the ENTIRE document text thoroughly. Route information can appear in:
+- "Route Description" or "Routing" sections
+- Tables with route details, waypoints, or directions
+- "From/To" fields
+- Detailed turn-by-turn directions
+- Any section mentioning highways, roads, cities, or directions
+- Mile marker references (convert these to city names)
+- County-by-county route breakdowns
+
+DO NOT just look at start/end points. Extract ALL intermediate waypoints from:
+- Detailed route descriptions (e.g., "Take I-29 South to Exit 42, then US-18 East to...")
+- Route tables listing each segment
+- Turn-by-turn instructions
+- Any listed highways, exits, or cities along the route
+
 From the provided permit document text, extract the following information in JSON format:
 
-1. start_location: The starting point as a GEOCODABLE address.
-   - Format: "Nearby City or Town, County, State" OR "Highway Exit Name, City, State"
-   - NEVER use mile post markers (MP) alone - convert them to the nearest city/town
-   - Example: "Sisseton, Roberts County, SD" instead of "I-29 & MP 252.65, Roberts, SD"
+1. start_location: The starting point as a GEOCODABLE INTERSECTION address.
+   - Format: "Intersection of [Highway/Road1] and [Highway/Road2], [County Name] County, [State]"
+   - ALWAYS include the county name for accuracy
+   - NEVER use mile post markers (MP) alone - convert them to nearest intersection
+   - Example: "Intersection of I-29 and SD-10, Roberts County, SD"
 
-2. end_location: The ending point as a GEOCODABLE address.
-   - Same rules as start_location
+2. end_location: The ending point as a GEOCODABLE INTERSECTION address.
+   - Same format as start_location
+   - Example: "Intersection of SD-42 and 271st St, Minnehaha County, SD"
 
-3. route_segments: A sequential array of GEOCODABLE waypoints. 
-
-   CRITICAL RULES FOR GEOCODABLE LOCATIONS:
+3. route_segments: A sequential array of ALL GEOCODABLE INTERSECTION waypoints along the ENTIRE route.
    
-   A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
+   EXTRACT ALL WAYPOINTS FROM:
+   - Route description sections (parse every highway change, turn, and city mentioned)
+   - Route tables (extract each row as a waypoint)
+   - Detailed directions (every turn, exit, highway change becomes a waypoint)
+   - Any intermediate cities, towns, or exits mentioned
+   
+   The route_segments should include EVERY point where:
+   - The route changes from one highway to another
+   - The route passes through a city or town
+   - There's a turn or direction change
+   - An exit is taken
+   - A county boundary is crossed
+
+   CRITICAL FORMATTING RULES:
+   
+   A) INTERSECTION FORMAT (MANDATORY):
+      - ALWAYS use intersection format: "Intersection of [Road1] and [Road2], [County Name] County, [State]"
+      - Example: "Intersection of US-69 and IA-9, Lyon County, IA"
+      - Example: "Intersection of I-29 and I-90, Minnehaha County, SD"
+      - If you don't know the cross street, use a landmark or city street:
+        "Intersection of US-18 and Main St, O'Brien County, IA"
+   
+   B) MANDATORY COUNTY NAMES:
+      - ALWAYS include the county name in every location
+      - Format: "[County Name] County, [State]"
+      - Example: "Lyon County, IA" or "Hancock County, IA"
+      - Never omit the county - it ensures geocoding accuracy
+   
+   C) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
       - MP markers like "MP 252.65" are NOT geocodable
-      - Convert MP markers to the nearest city/town on that highway
-      - Example: "I-29 MP 252.65 in Roberts County" → "Sisseton, Roberts County, SD"
-      - Use your knowledge of highway geography to identify the nearest town
+      - Convert to nearest intersection with county
+      - Example: "I-29 MP 252.65 in Roberts County" → "Intersection of I-29 and SD-10, Roberts County, SD"
    
-   B) HIGHWAY INTERSECTIONS/INTERCHANGES - SPLIT INTO SEPARATE SEGMENTS:
-      - NEVER combine two highways in one segment (e.g., "I-29 & I-90" or "I-29 and I-90 Interchange")
-      - When route transitions from one highway to another, create TWO SEPARATE segments:
-        * First segment: "[Highway1], [Nearest City], [State]"
-        * Second segment: "[Highway2], [Nearest City], [State]"
-      - Example: Route goes from I-29 to I-90 near Sioux Falls:
-        * Segment 1: "I-29, Sioux Falls, SD"
-        * Segment 2: "I-90, Sioux Falls, SD"
-      - This ensures each waypoint references only ONE highway for accurate geolocation
+   D) HIGHWAY TRANSITIONS - USE INTERSECTION FORMAT:
+      - When route transitions from one highway to another, format as intersection:
+      - Example: Route goes from I-29 to I-90:
+        "Intersection of I-29 and I-90, Minnehaha County, SD"
+      - This clearly shows WHERE the highways meet
    
-   C) HIGHWAY AND LOCAL ROAD INTERSECTIONS:
-      - Format as: "[Highway], [City], [State]" (preferred)
-      - Or: "[Road Name], [City], [State]"
-      - Example: "SD-11, Sioux Falls, SD"
-   
-   D) STATE/COUNTY BORDER CROSSINGS:
-      - Use the nearest town to the border
-      - Example: "SD-MN Border on I-29" → "Sisseton, SD" (nearest town)
-   
-   E) COUNTY REFERENCES:
-      - Counties are NOT geocodable by themselves
-      - Always use a city/town within that county
-      - Example: "Minnehaha County" → "Sioux Falls, SD"
-   
-   F) ONE HIGHWAY PER SEGMENT RULE:
-      - Each segment must contain ONLY ONE highway/route identifier
-      - If the permit shows a transition point, split it into multiple segments
+   E) TABLE DATA:
+      - If route is in a table format, extract EACH ROW as a separate waypoint
+      - Convert table entries to intersection format with county
 
-   EXAMPLE TRANSFORMATION:
-   BAD (not geocodable or confusing):
-   - "I-29 & MP 252.65, Roberts, SD"
-   - "I-29 & I-90, Minnehaha, SD"
-   - "I-29 and I-90 Interchange, Sioux Falls, SD"
-   - "SD-42 & MP 378.17, Minnehaha, SD"
-   - "I-90 & SD-11, Minnehaha, SD"
+   EXAMPLE - If document contains detailed route like:
+   "BEGIN I-29 SB AT SD/ND BORDER (ROBERTS COUNTY), CONTINUE TO I-90 (MINNEHAHA), 
+    TAKE I-90 WEST TO SD-11, THEN SD-11 SOUTH TO SD-42, END AT HARTFORD"
    
-   GOOD (geocodable, one highway per segment):
-   - "Sisseton, Roberts County, SD"
-   - "I-29, Sioux Falls, SD" (first segment)
-   - "I-90, Sioux Falls, SD" (second segment - same city, different highway)
-   - "SD-11, Sioux Falls, SD"
-   - "SD-42, Hartford, SD"
+   Output should be:
+   [
+     "Intersection of I-29 and SD-10, Roberts County, SD",
+     "Intersection of I-29 and US-212, Codington County, SD",
+     "Intersection of I-29 and US-14, Brookings County, SD",
+     "Intersection of I-29 and I-90, Minnehaha County, SD",
+     "Intersection of I-90 and SD-11, Minnehaha County, SD",
+     "Intersection of SD-11 and SD-42, Minnehaha County, SD",
+     "Intersection of SD-42 and 271st St, Minnehaha County, SD"
+   ]
 
 4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Single Trip")
 
-IMPORTANT: Every location in route_segments MUST be geocodable by Google Maps or similar services. Use city names, not mile posts or county names alone.
+IMPORTANT: 
+- Analyze the COMPLETE document, not just headers or first few lines
+- Extract ALL waypoints from route descriptions, tables, and detailed directions
+- Every location MUST use intersection format with county name
+- Format: "Intersection of [Road1] and [Road2], [County Name] County, [State]"
 
 Document text:
 {extracted_text}
@@ -301,51 +329,64 @@ Return ONLY a valid JSON object with these four fields. Use null for any fields 
             prompt = f"""
 You are an expert at extracting route information from permit documents and travel documents.
 
+IMPORTANT: Analyze the ENTIRE document text thoroughly. Route information can appear in:
+- "Route" or "Routing" sections
+- Tables with destinations, waypoints, or directions  
+- "From/To" or "Origin/Destination" fields
+- Detailed turn-by-turn directions
+- Any section mentioning highways, roads, cities, or directions
+- Mile marker references (convert to city names)
+
+DO NOT just look at start/end points. Extract ALL intermediate waypoints from the entire document.
+
 From the provided document text, extract the following information in JSON format:
 
-1. start_location: The starting point as a GEOCODABLE address.
-   - Format: "City, State" OR "Street/Highway Intersection, City, State"
+1. start_location: The starting point as a GEOCODABLE INTERSECTION address.
+   - Format: "Intersection of [Highway/Road1] and [Highway/Road2], [County Name] County, [State]"
+   - ALWAYS include the county name for accuracy
    - NEVER use mile post markers (MP) alone
 
-2. end_location: The ending point as a GEOCODABLE address.
+2. end_location: The ending point as a GEOCODABLE INTERSECTION address.
+   - Same format as start_location
 
-3. route_segments: An ordered array of GEOCODABLE waypoints along the route.
+3. route_segments: An ordered array of ALL GEOCODABLE INTERSECTION waypoints along the route.
 
-   CRITICAL RULES FOR GEOCODABLE LOCATIONS:
-   
-   A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
-      - MP markers like "MP 252.65" are NOT geocodable
-      - Convert to nearest city/town: "I-29 MP 252" → "Sisseton, SD"
-   
-   B) HIGHWAY INTERSECTIONS - SPLIT INTO SEPARATE SEGMENTS:
-      - NEVER combine two highways in one segment (e.g., "I-29 & I-90")
-      - When route transitions between highways, create TWO SEPARATE segments:
-        * Segment 1: "[Highway1], [Nearest City], [State]"
-        * Segment 2: "[Highway2], [Nearest City], [State]"
-      - Example: I-29 to I-90 transition → "I-29, Sioux Falls, SD" then "I-90, Sioux Falls, SD"
-   
-   C) HIGHWAY AND LOCAL ROAD:
-      - Format: "[Highway], [City], [State]" or "[Road], [City], [State]"
-      - Example: "US-81, Madison, SD"
-   
-   D) COUNTY REFERENCES:
-      - Counties alone are NOT geocodable
-      - Use a city within the county instead
-   
-   E) ONE HIGHWAY PER SEGMENT:
-      - Each segment must reference only ONE highway/route
-      - Split multi-highway points into separate segments
+   EXTRACT ALL WAYPOINTS FROM:
+   - Route description sections
+   - Route tables (each row = a waypoint)
+   - Detailed directions
+   - Any intermediate cities, exits, or highway changes
 
-   EXAMPLE:
-   BAD: "I-29 & MP 252.65, Roberts, SD"
-   GOOD: "Sisseton, SD"
+   CRITICAL FORMATTING RULES:
    
-   BAD: "I-90 & I-29, Minnehaha, SD"
-   GOOD: "I-29, Sioux Falls, SD" (segment 1), "I-90, Sioux Falls, SD" (segment 2)
+   A) INTERSECTION FORMAT (MANDATORY):
+      - ALWAYS use: "Intersection of [Road1] and [Road2], [County Name] County, [State]"
+      - Example: "Intersection of US-69 and IA-9, Lyon County, IA"
+      - If cross street unknown, use city street: "Intersection of US-18 and Main St, O'Brien County, IA"
+   
+   B) MANDATORY COUNTY NAMES:
+      - ALWAYS include county name in every location
+      - Format: "[County Name] County, [State]"
+      - Never omit the county - it ensures geocoding accuracy
+   
+   C) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
+      - Convert to nearest intersection with county
+      - Example: "I-29 MP 252" → "Intersection of I-29 and SD-10, Roberts County, SD"
+   
+   D) HIGHWAY TRANSITIONS - USE INTERSECTION FORMAT:
+      - Format highway transitions as intersections
+      - Example: "Intersection of I-29 and I-90, Minnehaha County, SD"
+   
+   E) TABLE DATA:
+      - Extract each table row as a separate waypoint in intersection format
 
 4. permit_type: The type of permit if identifiable
 
-IMPORTANT: Every waypoint MUST be geocodable by map services. Use actual city/town names, not just highway mile markers or county names.
+IMPORTANT:
+- Analyze the COMPLETE document text
+- Extract ALL waypoints from any route descriptions, tables, or directions
+- Every waypoint MUST use intersection format with county name
+- Format: "Intersection of [Road1] and [Road2], [County Name] County, [State]"
 
 Document text:
 {extracted_text}
