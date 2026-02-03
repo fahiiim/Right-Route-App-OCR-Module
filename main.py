@@ -165,13 +165,17 @@ def extract_text_from_document(file_path, document_name):
                 # Try PyMuPDF extraction first (handles encrypted PDFs better)
                 pdf_doc = fitz.open(file_path)
                 pdf_text = ""
-                for page_num in range(min(1, len(pdf_doc))):  # Get first page only
+                total_pages = len(pdf_doc)
+                print(f"  Found {total_pages} page(s) in PDF")
+                for page_num in range(total_pages):  # Extract ALL pages
                     page = pdf_doc[page_num]
-                    pdf_text += page.get_text()
+                    page_text = page.get_text()
+                    if page_text.strip():
+                        pdf_text += f"\n\n=== PAGE {page_num + 1} ===\n\n{page_text}"
                 pdf_doc.close()
                 
                 if pdf_text.strip():
-                    print("  ✅ PDF text extracted with PyMuPDF")
+                    print(f"  ✅ PDF text extracted from {total_pages} page(s) with PyMuPDF")
                     return pdf_text, None
             except Exception as e:
                 print(f"  ⚠️  PyMuPDF extraction failed: {str(e)}")
@@ -289,12 +293,20 @@ From the provided permit document text, extract the following information in JSO
 
 4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Single Trip")
 
-IMPORTANT: Every location in route_segments MUST be geocodable by Google Maps or similar services. Use city names, not mile posts or county names alone.
+5. If the document contains MULTIPLE ROUTES or MULTIPLE PERMITS (e.g., different pages with different authorized routes):
+   - Return an array called "routes" containing separate route objects
+   - Each route object should have: start_location, end_location, route_segments, permit_type, and state (the state that issued the permit)
+   - Look for page separators or different permit numbers to identify separate routes
+
+IMPORTANT: 
+- Every location in route_segments MUST be geocodable by Google Maps or similar services
+- Use city names, not mile posts or county names alone
+- If multiple routes exist, return ALL of them in the "routes" array
 
 Document text:
 {extracted_text}
 
-Return ONLY a valid JSON object with these four fields. Use null for any fields not found in the document.
+Return a valid JSON object. If there's only ONE route, use the four fields (start_location, end_location, route_segments, permit_type). If there are MULTIPLE routes, return: {"routes": [{...route1...}, {...route2...}]}
 """
         else:
             # Generic prompt for other permit types
@@ -345,12 +357,19 @@ From the provided document text, extract the following information in JSON forma
 
 4. permit_type: The type of permit if identifiable
 
-IMPORTANT: Every waypoint MUST be geocodable by map services. Use actual city/town names, not just highway mile markers or county names.
+5. If the document contains MULTIPLE ROUTES or MULTIPLE PERMITS:
+   - Return an array called "routes" containing separate route objects
+   - Each route object should have: start_location, end_location, route_segments, permit_type, and state
+
+IMPORTANT: 
+- Every waypoint MUST be geocodable by map services
+- Use actual city/town names, not just highway mile markers or county names
+- If multiple routes exist, return ALL of them
 
 Document text:
 {extracted_text}
 
-Return ONLY a valid JSON object with these fields. If any information is not found, use null for that field.
+Return a valid JSON object. If there's only ONE route, use the four fields. If there are MULTIPLE routes, return: {"routes": [{...route1...}, {...route2...}]}
 """
         
         response = get_openai_client().chat.completions.create(
