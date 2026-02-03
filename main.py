@@ -244,15 +244,20 @@ From the provided permit document text, extract the following information in JSO
       - Example: "I-29 MP 252.65 in Roberts County" → "Sisseton, Roberts County, SD"
       - Use your knowledge of highway geography to identify the nearest town
    
-   B) HIGHWAY INTERSECTIONS/INTERCHANGES:
-      - When two highways meet (like I-29 & I-90), this is an INTERCHANGE
-      - Format as: "[Highway1] and [Highway2] Interchange, [Nearest City], [State]"
-      - Example: "I-29 and I-90 Interchange, Sioux Falls, SD"
-      - NEVER format as "I-29 & I-90, County, State" - this is NOT geocodable
+   B) HIGHWAY INTERSECTIONS/INTERCHANGES - SPLIT INTO SEPARATE SEGMENTS:
+      - NEVER combine two highways in one segment (e.g., "I-29 & I-90" or "I-29 and I-90 Interchange")
+      - When route transitions from one highway to another, create TWO SEPARATE segments:
+        * First segment: "[Highway1], [Nearest City], [State]"
+        * Second segment: "[Highway2], [Nearest City], [State]"
+      - Example: Route goes from I-29 to I-90 near Sioux Falls:
+        * Segment 1: "I-29, Sioux Falls, SD"
+        * Segment 2: "I-90, Sioux Falls, SD"
+      - This ensures each waypoint references only ONE highway for accurate geolocation
    
    C) HIGHWAY AND LOCAL ROAD INTERSECTIONS:
-      - Format as: "[Highway] and [Road Name], [City], [State]"
-      - Example: "SD-11 and 26th Street, Sioux Falls, SD"
+      - Format as: "[Highway], [City], [State]" (preferred)
+      - Or: "[Road Name], [City], [State]"
+      - Example: "SD-11, Sioux Falls, SD"
    
    D) STATE/COUNTY BORDER CROSSINGS:
       - Use the nearest town to the border
@@ -261,18 +266,26 @@ From the provided permit document text, extract the following information in JSO
    E) COUNTY REFERENCES:
       - Counties are NOT geocodable by themselves
       - Always use a city/town within that county
-      - Example: "Minnehaha County" → "Sioux Falls, Minnehaha County, SD"
+      - Example: "Minnehaha County" → "Sioux Falls, SD"
+   
+   F) ONE HIGHWAY PER SEGMENT RULE:
+      - Each segment must contain ONLY ONE highway/route identifier
+      - If the permit shows a transition point, split it into multiple segments
 
    EXAMPLE TRANSFORMATION:
-   BAD (not geocodable):
+   BAD (not geocodable or confusing):
    - "I-29 & MP 252.65, Roberts, SD"
    - "I-29 & I-90, Minnehaha, SD"
-   - "SD-42 & MP 378.17, Minnehaha, SD"
-   
-   GOOD (geocodable):
-   - "Sisseton, Roberts County, SD"
    - "I-29 and I-90 Interchange, Sioux Falls, SD"
-   - "SD-42 near Hartford, Minnehaha County, SD"
+   - "SD-42 & MP 378.17, Minnehaha, SD"
+   - "I-90 & SD-11, Minnehaha, SD"
+   
+   GOOD (geocodable, one highway per segment):
+   - "Sisseton, Roberts County, SD"
+   - "I-29, Sioux Falls, SD" (first segment)
+   - "I-90, Sioux Falls, SD" (second segment - same city, different highway)
+   - "SD-11, Sioux Falls, SD"
+   - "SD-42, Hartford, SD"
 
 4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Single Trip")
 
@@ -304,25 +317,31 @@ From the provided document text, extract the following information in JSON forma
       - MP markers like "MP 252.65" are NOT geocodable
       - Convert to nearest city/town: "I-29 MP 252" → "Sisseton, SD"
    
-   B) HIGHWAY INTERSECTIONS/INTERCHANGES:
-      - Format as: "[Highway1] and [Highway2] Interchange, [Nearest City], [State]"
-      - Example: "I-29 and I-90 Interchange, Sioux Falls, SD"
-      - NEVER use format like "I-29 & I-90, County, State"
+   B) HIGHWAY INTERSECTIONS - SPLIT INTO SEPARATE SEGMENTS:
+      - NEVER combine two highways in one segment (e.g., "I-29 & I-90")
+      - When route transitions between highways, create TWO SEPARATE segments:
+        * Segment 1: "[Highway1], [Nearest City], [State]"
+        * Segment 2: "[Highway2], [Nearest City], [State]"
+      - Example: I-29 to I-90 transition → "I-29, Sioux Falls, SD" then "I-90, Sioux Falls, SD"
    
    C) HIGHWAY AND LOCAL ROAD:
-      - Format: "[Highway] and [Road], [City], [State]"
-      - Example: "US-81 and Main Street, Madison, SD"
+      - Format: "[Highway], [City], [State]" or "[Road], [City], [State]"
+      - Example: "US-81, Madison, SD"
    
    D) COUNTY REFERENCES:
       - Counties alone are NOT geocodable
       - Use a city within the county instead
+   
+   E) ONE HIGHWAY PER SEGMENT:
+      - Each segment must reference only ONE highway/route
+      - Split multi-highway points into separate segments
 
    EXAMPLE:
    BAD: "I-29 & MP 252.65, Roberts, SD"
-   GOOD: "Sisseton, Roberts County, SD"
+   GOOD: "Sisseton, SD"
    
-   BAD: "I-90 & I-29, Minnehaha, SD"  
-   GOOD: "I-29 and I-90 Interchange, Sioux Falls, SD"
+   BAD: "I-90 & I-29, Minnehaha, SD"
+   GOOD: "I-29, Sioux Falls, SD" (segment 1), "I-90, Sioux Falls, SD" (segment 2)
 
 4. permit_type: The type of permit if identifiable
 
