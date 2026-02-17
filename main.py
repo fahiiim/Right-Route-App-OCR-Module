@@ -75,7 +75,7 @@ def __getattr__(name):
         return get_openai_client()
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
-ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'}
+ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'txt', 'jpeg', 'png', 'gif', 'webp'}
 
 # State abbreviations mapping
 STATE_ABBREVIATIONS = {
