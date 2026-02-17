@@ -226,75 +226,104 @@ You are an expert at extracting route information from Overdimension Superload, 
 
 From the provided permit document text, extract the following information in JSON format:
 
-1. start_location: The starting point as a GEOCODABLE address.
-   - Format: "Nearby City or Town, County, State" OR "Highway Exit Name, City, State"
-   - NEVER use mile post markers (MP) alone - convert them to the nearest city/town
-   - Example: "Sisseton, Roberts County, SD" instead of "I-29 & MP 252.65, Roberts, SD"
+1. start_point: An object containing:
+   - raw_text: The exact text from the document describing the start point
+   - parsed: An object with:
+     * road: The road/highway identifier (e.g., "IA-9", "US-75", "I-29")
+     * direction: Direction abbreviation (e.g., "EB", "WB", "NB", "SB")
+     * intersection: Cross street or intersection identifier if mentioned
+     * county: County name if mentioned
+     * state: State abbreviation (e.g., "IA", "SD")
+     * city: City name if mentioned
 
-2. end_location: The ending point as a GEOCODABLE address.
-   - Same rules as start_location
+2. end_point: An object with the same structure as start_point (raw_text and parsed fields)
 
-3. route_segments: A sequential array of GEOCODABLE waypoints. 
-
-   CRITICAL RULES FOR GEOCODABLE LOCATIONS:
-   
-   A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
-      - MP markers like "MP 252.65" are NOT geocodable
-      - Convert MP markers to the nearest city/town on that highway
-      - Example: "I-29 MP 252.65 in Roberts County" → "Sisseton, Roberts County, SD"
-      - Use your knowledge of highway geography to identify the nearest town
-   
-   B) HIGHWAY INTERSECTIONS/INTERCHANGES - SPLIT INTO SEPARATE SEGMENTS:
-      - NEVER combine two highways in one segment (e.g., "I-29 & I-90" or "I-29 and I-90 Interchange")
-      - When route transitions from one highway to another, create TWO SEPARATE segments:
-        * First segment: "[Highway1], [Nearest City], [State]"
-        * Second segment: "[Highway2], [Nearest City], [State]"
-      - Example: Route goes from I-29 to I-90 near Sioux Falls:
-        * Segment 1: "I-29, Sioux Falls, SD"
-        * Segment 2: "I-90, Sioux Falls, SD"
-      - This ensures each waypoint references only ONE highway for accurate geolocation
-   
-   C) HIGHWAY AND LOCAL ROAD INTERSECTIONS:
-      - Format as: "[Highway], [City], [State]" (preferred)
-      - Or: "[Road Name], [City], [State]"
-      - Example: "SD-11, Sioux Falls, SD"
-   
-   D) STATE/COUNTY BORDER CROSSINGS:
-      - Use the nearest town to the border
-      - Example: "SD-MN Border on I-29" → "Sisseton, SD" (nearest town)
-   
-   E) COUNTY REFERENCES:
-      - Counties are NOT geocodable by themselves
-      - Always use a city/town within that county
-      - Example: "Minnehaha County" → "Sioux Falls, SD"
-   
-   F) ONE HIGHWAY PER SEGMENT RULE:
-      - Each segment must contain ONLY ONE highway/route identifier
-      - If the permit shows a transition point, split it into multiple segments
-
-   EXAMPLE TRANSFORMATION:
-   BAD (not geocodable or confusing):
-   - "I-29 & MP 252.65, Roberts, SD"
-   - "I-29 & I-90, Minnehaha, SD"
-   - "I-29 and I-90 Interchange, Sioux Falls, SD"
-   - "SD-42 & MP 378.17, Minnehaha, SD"
-   - "I-90 & SD-11, Minnehaha, SD"
-   
-   GOOD (geocodable, one highway per segment):
-   - "Sisseton, Roberts County, SD"
-   - "I-29, Sioux Falls, SD" (first segment)
-   - "I-90, Sioux Falls, SD" (second segment - same city, different highway)
-   - "SD-11, Sioux Falls, SD"
-   - "SD-42, Hartford, SD"
+3. route_steps: A sequential array where each step contains:
+   - step_id: Sequential number starting from 1
+   - raw_text: The exact text from the document for this route segment
+   - parsed: An object with fields (include only fields that are present):
+     * road: Road/highway identifier
+     * direction: Direction abbreviation
+     * action: Action type (e.g., "start", "merge", "continue", "turn", "exit")
+     * city: City name if mentioned
+     * county: County name if mentioned
+     * state: State abbreviation if mentioned
+     * intersection: Cross street or intersection if mentioned
+     * mile_post: Mile post marker if mentioned
 
 4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Single Trip")
 
-IMPORTANT: Every location in route_segments MUST be geocodable by Google Maps or similar services. Use city names, not mile posts or county names alone.
+PARSING RULES:
+- Extract the EXACT raw text as it appears in the document
+- For parsed fields, extract individual components:
+  * Roads: "IA-9", "US-75", "I-29", "SD-11", etc.
+  * Directions: "EB" (Eastbound), "WB" (Westbound), "NB" (Northbound), "SB" (Southbound)
+  * Actions: Infer from context (start, merge, continue, turn, exit)
+  * Intersections: Cross streets, exits, or reference points
+  * Cities: Town or city names
+  * Counties: County names (in parentheses usually)
+  * States: Two-letter state codes
+
+EXAMPLE FORMAT:
+{{
+  "start_point": {{
+    "raw_text": "IA-9 EB AT A10 INTERSECTION (LYON)(STATE BORDER OF SOUTH DAKOTA)",
+    "parsed": {{
+      "road": "IA-9",
+      "direction": "EB",
+      "intersection": "A10",
+      "county": "Lyon",
+      "state": "IA"
+    }}
+  }},
+  "end_point": {{
+    "raw_text": "US-18 WB AT MN-60 INTERSECTION (LYON)",
+    "parsed": {{
+      "road": "US-18",
+      "direction": "WB",
+      "intersection": "MN-60",
+      "county": "Lyon",
+      "state": "IA"
+    }}
+  }},
+  "route_steps": [
+    {{
+      "step_id": 1,
+      "raw_text": "START ON IA-9 EB AT A10 INTERSECTION",
+      "parsed": {{
+        "road": "IA-9",
+        "direction": "EB",
+        "action": "start",
+        "intersection": "A10"
+      }}
+    }},
+    {{
+      "step_id": 2,
+      "raw_text": "US-75 SB",
+      "parsed": {{
+        "road": "US-75",
+        "direction": "SB",
+        "action": "merge"
+      }}
+    }},
+    {{
+      "step_id": 3,
+      "raw_text": "IA-9 EB (IN ROCK RAPIDS AT N UNION ST)",
+      "parsed": {{
+        "road": "IA-9",
+        "direction": "EB",
+        "city": "Rock Rapids",
+        "intersection": "N Union St"
+      }}
+    }}
+  ],
+  "permit_type": "Overdimension Superload"
+}}
 
 Document text:
 {extracted_text}
 
-Return ONLY a valid JSON object with these four fields. Use null for any fields not found in the document.
+Return ONLY a valid JSON object with these fields. Use null for fields not found in the document.
 """
         else:
             # Generic prompt for other permit types
@@ -303,54 +332,77 @@ You are an expert at extracting route information from permit documents and trav
 
 From the provided document text, extract the following information in JSON format:
 
-1. start_location: The starting point as a GEOCODABLE address.
-   - Format: "City, State" OR "Street/Highway Intersection, City, State"
-   - NEVER use mile post markers (MP) alone
+1. start_point: An object containing:
+   - raw_text: The exact text from the document describing the start point
+   - parsed: An object with:
+     * road: The road/highway identifier (e.g., "IA-9", "US-75")
+     * direction: Direction abbreviation (e.g., "EB", "WB", "NB", "SB")
+     * intersection: Cross street if mentioned
+     * county: County name if mentioned
+     * state: State abbreviation (e.g., "IA", "SD")
+     * city: City name if mentioned
 
-2. end_location: The ending point as a GEOCODABLE address.
+2. end_point: An object with the same structure as start_point
 
-3. route_segments: An ordered array of GEOCODABLE waypoints along the route.
-
-   CRITICAL RULES FOR GEOCODABLE LOCATIONS:
-   
-   A) MILE POST (MP) MARKERS - NEVER USE MP IN OUTPUT:
-      - MP markers like "MP 252.65" are NOT geocodable
-      - Convert to nearest city/town: "I-29 MP 252" → "Sisseton, SD"
-   
-   B) HIGHWAY INTERSECTIONS - SPLIT INTO SEPARATE SEGMENTS:
-      - NEVER combine two highways in one segment (e.g., "I-29 & I-90")
-      - When route transitions between highways, create TWO SEPARATE segments:
-        * Segment 1: "[Highway1], [Nearest City], [State]"
-        * Segment 2: "[Highway2], [Nearest City], [State]"
-      - Example: I-29 to I-90 transition → "I-29, Sioux Falls, SD" then "I-90, Sioux Falls, SD"
-   
-   C) HIGHWAY AND LOCAL ROAD:
-      - Format: "[Highway], [City], [State]" or "[Road], [City], [State]"
-      - Example: "US-81, Madison, SD"
-   
-   D) COUNTY REFERENCES:
-      - Counties alone are NOT geocodable
-      - Use a city within the county instead
-   
-   E) ONE HIGHWAY PER SEGMENT:
-      - Each segment must reference only ONE highway/route
-      - Split multi-highway points into separate segments
-
-   EXAMPLE:
-   BAD: "I-29 & MP 252.65, Roberts, SD"
-   GOOD: "Sisseton, SD"
-   
-   BAD: "I-90 & I-29, Minnehaha, SD"
-   GOOD: "I-29, Sioux Falls, SD" (segment 1), "I-90, Sioux Falls, SD" (segment 2)
+3. route_steps: A sequential array where each step contains:
+   - step_id: Sequential number starting from 1
+   - raw_text: The exact text from the document for this route segment
+   - parsed: An object with fields (include only fields present):
+     * road: Road/highway identifier
+     * direction: Direction abbreviation
+     * action: Action type (e.g., "start", "merge", "continue", "turn", "exit")
+     * city: City name if mentioned
+     * county: County name if mentioned
+     * state: State abbreviation if mentioned
+     * intersection: Cross street or intersection if mentioned
+     * mile_post: Mile post marker if mentioned
 
 4. permit_type: The type of permit if identifiable
 
-IMPORTANT: Every waypoint MUST be geocodable by map services. Use actual city/town names, not just highway mile markers or county names.
+PARSING RULES:
+- Extract EXACT raw text from the document
+- Parse individual components into separate fields
+- Infer action types from context
+- Only include fields that are actually present
+
+EXAMPLE FORMAT:
+{{
+  "start_point": {{
+    "raw_text": "IA-9 EB AT A10 INTERSECTION (LYON)",
+    "parsed": {{
+      "road": "IA-9",
+      "direction": "EB",
+      "intersection": "A10",
+      "county": "Lyon",
+      "state": "IA"
+    }}
+  }},
+  "end_point": {{
+    "raw_text": "US-18 WB AT MN-60",
+    "parsed": {{
+      "road": "US-18",
+      "direction": "WB",
+      "intersection": "MN-60"
+    }}
+  }},
+  "route_steps": [
+    {{
+      "step_id": 1,
+      "raw_text": "START ON IA-9 EB",
+      "parsed": {{
+        "road": "IA-9",
+        "direction": "EB",
+        "action": "start"
+      }}
+    }}
+  ],
+  "permit_type": "Single Trip"
+}}
 
 Document text:
 {extracted_text}
 
-Return ONLY a valid JSON object with these fields. If any information is not found, use null for that field.
+Return ONLY a valid JSON object with these fields. Use null for any fields not found.
 """
         
         response = get_openai_client().chat.completions.create(
