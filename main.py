@@ -449,39 +449,39 @@ def process_document(file_path):
     try:
         # Check if file exists
         if not os.path.exists(file_path):
-            print(f"❌ Error: File not found: {file_path}")
+            print(f" Error: File not found: {file_path}")
             return None
         
         # Check if file is allowed
         if not allowed_file(file_path):
-            print(f"❌ Error: File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}")
+            print(f" Error: File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}")
             return None
         
         filename = os.path.basename(file_path)
-        print(f"\n📄 Processing document: {filename}")
+        print(f"\n Processing document: {filename}")
         print("=" * 60)
         
         # Extract text using Textract
-        print("🔍 Extracting text from document using AWS Textract...")
+        print(" Extracting text from document using AWS Textract...")
         extracted_text, job_id = extract_text_from_document(file_path, filename)
         
         if extracted_text is None:
-            print(f"⏳ PDF processing started asynchronously. Job ID: {job_id}")
+            print(f" PDF processing started asynchronously. Job ID: {job_id}")
             return None
         
-        print(f"✅ Text extraction successful")
-        print(f"\n📝 Extracted Text Preview:\n{'-' * 60}")
+        print(f" Text extraction successful")
+        print(f"\n Extracted Text Preview:\n{'-' * 60}")
         print(extracted_text[:500])
         if len(extracted_text) > 500:
             print(f"\n... (total {len(extracted_text)} characters)")
         print("-" * 60)
         
         # Extract route information using OpenAI
-        print("\n🤖 Extracting route information using OpenAI...")
+        print("\n Extracting route information using OpenAI...")
         route_info = extract_route_information(extracted_text)
         
-        print("✅ Route extraction successful")
-        print(f"\n🗺️  Route Information:\n{'-' * 60}")
+        print(" Route extraction successful")
+        print(f"\n  Route Information:\n{'-' * 60}")
         print(json.dumps(route_info, indent=2))
         print("-" * 60)
         
@@ -492,19 +492,19 @@ def process_document(file_path):
         }
         
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f" Error: {str(e)}")
         return None
 
 
 def main():
     """Main entry point for the CLI"""
-    print("\n🌐 OCR Module - Route Information Extractor")
+    print("\n OCR Module - Route Information Extractor")
     print("=" * 60)
     
     if len(sys.argv) < 2:
-        print("\n📖 Usage: python main.py <file_path>")
-        print(f"\n✅ Supported formats: {', '.join(ALLOWED_EXTENSIONS)}")
-        print("\n📝 Example:")
+        print("\n Usage: python main.py <file_path>")
+        print(f"\n Supported formats: {', '.join(ALLOWED_EXTENSIONS)}")
+        print("\n Example:")
         print("   python main.py permit.pdf")
         print("   python main.py document.jpg")
         sys.exit(1)
