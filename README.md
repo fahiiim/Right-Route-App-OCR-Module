@@ -91,8 +91,10 @@ pip install -r requirements.txt
 This installs:
 - `boto3` - AWS SDK
 - `openai` - OpenAI API client
+- `fastapi` and `uvicorn` - REST API server
 - `python-dotenv` - Environment variable management
-- `PyPDF2` - PDF processing
+- `python-multipart` - File upload handling
+- `pymupdf` - PDF processing and text extraction
 - `Pillow` - Image processing
 - `requests` - HTTP client
 
@@ -155,6 +157,85 @@ python main.py path/to/document.pdf
 }
 ------------------------------------------------------------
 ```
+
+### 5. Run the REST API (Local)
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8001
+```
+
+Once running:
+- API root: `http://localhost:8001/`
+- Interactive docs: `http://localhost:8001/docs`
+- OCR endpoint: `POST http://localhost:8001/api/ocr/extract`
+
+---
+
+## Docker Quick Start
+
+### 1. Prepare environment variables
+
+```bash
+# Windows PowerShell
+Copy-Item .env.example .env
+
+# macOS/Linux
+cp .env.example .env
+```
+
+Update `.env` with your real AWS and OpenAI credentials.
+
+### 2. Build and run with Docker Compose
+
+```bash
+docker compose up --build -d
+```
+
+### 3. Test the containerized API
+
+```bash
+curl http://localhost:8001/
+```
+
+Swagger docs will be available at `http://localhost:8001/docs`.
+
+### 4. Stop the container
+
+```bash
+docker compose down
+```
+
+---
+
+## Live Link From Docker (No Cloud Deployment)
+
+If your container is already running on port `8001`, you can create a temporary public link directly from your machine.
+
+### 1. Keep Docker container running
+
+```bash
+docker compose up -d
+```
+
+### 2. Start temporary public tunnel
+
+```bash
+ssh -o StrictHostKeyChecking=no -R 80:localhost:8001 nokey@localhost.run
+```
+
+The terminal will print a public HTTPS URL (example: `https://abc123.localhost.run`).
+
+### 3. Share this link with backend engineer
+
+- `GET https://<your-tunnel-domain>/`
+- `GET https://<your-tunnel-domain>/docs`
+- `POST https://<your-tunnel-domain>/api/ocr/extract`
+
+### 4. Stop live link when done
+
+Close the tunnel terminal with `Ctrl + C`.
+
+Note: this tunnel link is temporary and changes when restarted.
 
 ---
 
@@ -339,15 +420,16 @@ python main.py /full/path/to/document.pdf    # macOS/Linux
 ## Code Structure
 
 ```
-Right-Route-App-OCR-Module/
-├── main.py                    # Core module (216 lines)
-│   ├── extract_text_from_document()      # Textract/PyPDF2
-│   ├── extract_route_information()       # OpenAI processing
-│   └── process_document()                # Main orchestrator
+Social-wifi OCR Module/
+├── api.py                     # FastAPI application and endpoints
+├── main.py                    # OCR extraction and AI parsing logic
 ├── requirements.txt           # Python dependencies
-├── .env                       # Configuration (git-ignored)
-├── uploads/                   # Document storage directory
-└── README.md                  # This file
+├── Dockerfile                 # Container build definition
+├── docker-compose.yml         # Local container orchestration
+├── .env.example               # Environment variable template
+├── .env                       # Local secrets (git-ignored)
+├── uploads/                   # Optional local document directory
+└── README.md                  # Documentation
 ```
 
 ---
@@ -357,9 +439,13 @@ Right-Route-App-OCR-Module/
 | Package | Version | Purpose |
 |---------|---------|---------|
 | boto3 | ≥1.28.0 | AWS SDK |
+| botocore | ≥1.31.0 | AWS SDK core configuration |
+| fastapi | ≥0.104.0 | REST API framework |
+| uvicorn | ≥0.24.0 | ASGI server |
 | openai | ≥1.5.0 | OpenAI API |
 | python-dotenv | ≥1.0.0 | Environment variables |
-| PyPDF2 | ≥4.0.0 | PDF text extraction |
+| python-multipart | ≥0.0.6 | Multipart file uploads |
+| pymupdf | ≥1.24.0 | PDF text extraction |
 | Pillow | ≥11.0.0 | Image processing |
 | requests | ≥2.31.0 | HTTP requests |
 
@@ -440,19 +526,20 @@ MIT License - See [LICENSE](LICENSE) for details
 │                                      │
 │  Application Layer                   │
 │  ├─ Python 3.8+                      │
-│  └─ Flask (optional for API)         │
+│  └─ FastAPI + Uvicorn                │
 │                                      │
 │  Processing Layer                    │
 │  ├─ AWS Textract (OCR)              │
-│  ├─ PyPDF2 (PDF handling)           │
+│  ├─ PyMuPDF (PDF handling)          │
 │  └─ Pillow (Image processing)       │
 │                                      │
 │  Intelligence Layer                  │
-│  └─ OpenAI GPT-3.5 (NLP)            │
+│  └─ OpenAI GPT models (NLP)         │
 │                                      │
 │  Infrastructure                      │
-│  ├─ AWS Services                     │
-│  └─ OpenAI APIs                      │
+│  ├─ Docker / Docker Compose          │
+│  ├─ Localhost.run tunnel             │
+│  └─ AWS + OpenAI APIs                │
 │                                      │
 └──────────────────────────────────────┘
 ```
@@ -465,8 +552,8 @@ MIT License - See [LICENSE](LICENSE) for details
 - [ ] Multi-language support
 - [ ] Confidence score metrics
 - [ ] Result caching layer
-- [ ] REST API wrapper
-- [ ] Docker containerization
+- [x] REST API wrapper
+- [x] Docker containerization
 - [ ] Unit test suite
 - [ ] Performance optimization
 
@@ -482,7 +569,7 @@ This module processes documents through external services (AWS, OpenAI). Ensure 
 
 ---
 
-**Last Updated:** December 2025  
+**Last Updated:** March 2026  
 **Repository:** [GitHub](https://github.com/fahiiim/Right-Route-App-OCR-Module)  
 **Maintained By:** SparkTech Agency
 **AI Engineer:** Md Fahim Sarker Mridul

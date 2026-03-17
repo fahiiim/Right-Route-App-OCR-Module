@@ -1,0 +1,36 @@
+# Git and local tooling
+.git
+.gitignore
+.vscode/
+.idea/
+
+# Python cache and virtualenvs
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+ENV/
+env/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Build and runtime artifacts
+build/
+dist/
+*.log
+uploads/
+
+# Local-only docs/samples
+PUSH_SUMMARY.md
+Permit sample 1.pdf
+Permit sample 2.pdf
+Permit sample 3.pdf
