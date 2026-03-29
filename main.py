@@ -201,208 +201,37 @@ def extract_text_from_document(file_path, document_name):
         raise Exception(f"Error extracting text from document: {str(e)}")
 
 
-def detect_permit_type(extracted_text):
-    """Detect the type of permit document"""
-    text_lower = extracted_text.lower()
-    
-    # Check for Overdimension/Oversize/Overweight permits
-    if any(keyword in text_lower for keyword in ['overdimension', 'superload', 'oversize', 'overweight', 'department of transportation']):
-        return 'overdimension'
-    
-    # Default to generic permit type
-    return 'generic'
-
-
 def extract_route_information(extracted_text):
-    """Use OpenAI to extract route information from OCR text"""
+    """Use OpenAI to extract and intelligently format route information from OCR text for all US states"""
     try:
-        # Detect permit type
-        permit_type = detect_permit_type(extracted_text)
-        
-        # Use specialized prompt based on permit type
-        if permit_type == 'overdimension':
-            prompt = f"""
-You are an expert at extracting route information from Overdimension Superload, Oversize, and Overweight permits.
+        prompt = f"""
+You are an expert at extracting and formatting route information from permit documents spanning all US states.
 
-From the provided permit document text, extract the following information in JSON format:
+Use your geographic knowledge to infer full city, county, and state names based on abbreviations, road names, partial county names, or mileposts provided in the text. For example, if the text mentions "MP ROBERTS" and "SD-42", you should infer Roberts County, South Dakota, and identify primary cities like Sisseton. If you see "I-29 SB AT MP ROBERTS 252.65, I-90 EB, SD-11 SB, SD-42 EB, END ON SD-42 AT MP MINNEHAHA", you should figure out the start and end cities and map out each step accurately.
 
-1. start_point: An object containing:
-   - raw_text: The exact text from the document describing the start point
-   - parsed: An object with:
-     * road: The road/highway identifier (e.g., "IA-9", "US-75", "I-29")
-     * direction: Direction abbreviation (e.g., "EB", "WB", "NB", "SB")
-     * intersection: Cross street or intersection identifier if mentioned
-     * county: County name if mentioned
-     * state: State abbreviation (e.g., "IA", "SD")
-     * city: City name if mentioned
+From the provided document text, extract the route information and return ONLY a valid JSON object matching the following exact structure:
 
-2. end_point: An object with the same structure as start_point (raw_text and parsed fields)
-
-3. route_steps: A sequential array where each step contains:
-   - step_id: Sequential number starting from 1
-   - raw_text: The exact text from the document for this route segment
-   - parsed: An object with fields (include only fields that are present):
-     * road: Road/highway identifier
-     * direction: Direction abbreviation
-     * action: Action type (e.g., "start", "merge", "continue", "turn", "exit")
-     * city: City name if mentioned
-     * county: County name if mentioned
-     * state: State abbreviation if mentioned
-     * intersection: Cross street or intersection if mentioned
-     * mile_post: Mile post marker if mentioned
-
-4. permit_type: The type of permit (e.g., "Overdimension Superload", "Oversize/Overweight Single Trip")
-
-PARSING RULES:
-- Extract the EXACT raw text as it appears in the document
-- For parsed fields, extract individual components:
-  * Roads: "IA-9", "US-75", "I-29", "SD-11", etc.
-  * Directions: "EB" (Eastbound), "WB" (Westbound), "NB" (Northbound), "SB" (Southbound)
-  * Actions: Infer from context (start, merge, continue, turn, exit)
-  * Intersections: Cross streets, exits, or reference points
-  * Cities: Town or city names
-  * Counties: County names (in parentheses usually)
-  * States: Two-letter state codes
-
-EXAMPLE FORMAT:
 {{
-  "start_point": {{
-    "raw_text": "IA-9 EB AT A10 INTERSECTION (LYON)(STATE BORDER OF SOUTH DAKOTA)",
-    "parsed": {{
-      "road": "IA-9",
-      "direction": "EB",
-      "intersection": "A10",
-      "county": "Lyon",
-      "state": "IA"
-    }}
-  }},
-  "end_point": {{
-    "raw_text": "US-18 WB AT MN-60 INTERSECTION (LYON)",
-    "parsed": {{
-      "road": "US-18",
-      "direction": "WB",
-      "intersection": "MN-60",
-      "county": "Lyon",
-      "state": "IA"
-    }}
-  }},
-  "route_steps": [
-    {{
-      "step_id": 1,
-      "raw_text": "START ON IA-9 EB AT A10 INTERSECTION",
-      "parsed": {{
-        "road": "IA-9",
-        "direction": "EB",
-        "action": "start",
-        "intersection": "A10"
-      }}
-    }},
-    {{
-      "step_id": 2,
-      "raw_text": "US-75 SB",
-      "parsed": {{
-        "road": "US-75",
-        "direction": "SB",
-        "action": "merge"
-      }}
-    }},
-    {{
-      "step_id": 3,
-      "raw_text": "IA-9 EB (IN ROCK RAPIDS AT N UNION ST)",
-      "parsed": {{
-        "road": "IA-9",
-        "direction": "EB",
-        "city": "Rock Rapids",
-        "intersection": "N Union St"
-      }}
-    }}
+  "start_location": "[City], [County] County, [State]",
+  "end_location": "[City], [County] County, [State]",
+  "route_segments": [
+    "[Road/Highway], [City], [State]",
+    ...
   ],
-  "permit_type": "Overdimension Superload"
+  "permit_type": "[Permit type, e.g., Oversize / Overweight Single Trip]"
 }}
+
+Rules:
+- Return ONLY valid JSON, nothing else. No markdown formatting.
+- Expand all state abbreviations to full state names (e.g., "SD" to "South Dakota", "TX" to "Texas").
+- Ensure road names are properly formatted (e.g., "I-29", "US-75", "SD-11").
+- Keep route segments in the exact order of travel.
+- Format locations nicely, guessing the representative city if only a county or highway is provided but you are confident about the general area the route crosses or starts/ends at.
+- Use explicit and clean formatting. For `permit_type`, infer it from the text (e.g. "Oversize / Overweight Single Trip", "Overdimension Superload").
+- If a field cannot be determined, use null for strings and [] for segments.
 
 Document text:
 {extracted_text}
-
-Return ONLY a valid JSON object with these fields. Use null for fields not found in the document.
-"""
-        else:
-            # Generic prompt for other permit types
-            prompt = f"""
-You are an expert at extracting route information from permit documents and travel documents.
-
-From the provided document text, extract the following information in JSON format:
-
-1. start_point: An object containing:
-   - raw_text: The exact text from the document describing the start point
-   - parsed: An object with:
-     * road: The road/highway identifier (e.g., "IA-9", "US-75")
-     * direction: Direction abbreviation (e.g., "EB", "WB", "NB", "SB")
-     * intersection: Cross street if mentioned
-     * county: County name if mentioned
-     * state: State abbreviation (e.g., "IA", "SD")
-     * city: City name if mentioned
-
-2. end_point: An object with the same structure as start_point
-
-3. route_steps: A sequential array where each step contains:
-   - step_id: Sequential number starting from 1
-   - raw_text: The exact text from the document for this route segment
-   - parsed: An object with fields (include only fields present):
-     * road: Road/highway identifier
-     * direction: Direction abbreviation
-     * action: Action type (e.g., "start", "merge", "continue", "turn", "exit")
-     * city: City name if mentioned
-     * county: County name if mentioned
-     * state: State abbreviation if mentioned
-     * intersection: Cross street or intersection if mentioned
-     * mile_post: Mile post marker if mentioned
-
-4. permit_type: The type of permit if identifiable
-
-PARSING RULES:
-- Extract EXACT raw text from the document
-- Parse individual components into separate fields
-- Infer action types from context
-- Only include fields that are actually present
-
-EXAMPLE FORMAT:
-{{
-  "start_point": {{
-    "raw_text": "IA-9 EB AT A10 INTERSECTION (LYON)",
-    "parsed": {{
-      "road": "IA-9",
-      "direction": "EB",
-      "intersection": "A10",
-      "county": "Lyon",
-      "state": "IA"
-    }}
-  }},
-  "end_point": {{
-    "raw_text": "US-18 WB AT MN-60",
-    "parsed": {{
-      "road": "US-18",
-      "direction": "WB",
-      "intersection": "MN-60"
-    }}
-  }},
-  "route_steps": [
-    {{
-      "step_id": 1,
-      "raw_text": "START ON IA-9 EB",
-      "parsed": {{
-        "road": "IA-9",
-        "direction": "EB",
-        "action": "start"
-      }}
-    }}
-  ],
-  "permit_type": "Single Trip"
-}}
-
-Document text:
-{extracted_text}
-
-Return ONLY a valid JSON object with these fields. Use null for any fields not found.
 """
         
         response = get_openai_client().chat.completions.create(
@@ -411,7 +240,7 @@ Return ONLY a valid JSON object with these fields. Use null for any fields not f
                 {"role": "system", "content": "You are an OCR data extraction specialist. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
+            temperature=0.1,
             max_tokens=2000
         )
         
@@ -432,11 +261,9 @@ Return ONLY a valid JSON object with these fields. Use null for any fields not f
                     "start_location": None,
                     "end_location": None,
                     "route_segments": [],
+                    "permit_type": "Unknown",
                     "raw_response": response_text
                 }
-        
-        # Expand abbreviations in the entire extracted route information (recursive)
-        route_info = expand_abbreviations_in_dict(route_info)
         
         return route_info
         
