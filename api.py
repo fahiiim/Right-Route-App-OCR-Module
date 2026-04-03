@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from main import (
     process_document,
     ALLOWED_EXTENSIONS,
-    allowed_file
+    allowed_file,
+    RouteExtractionError
 )
 
 # Load environment variables
@@ -51,7 +52,16 @@ async def extract_route_information(file: UploadFile = File(...)):
         
         try:
             # Process the document
-            result = process_document(temp_file_path)
+            try:
+                result = process_document(temp_file_path)
+            except RouteExtractionError as e:
+                raise HTTPException(
+                    status_code=e.status_code,
+                    detail={
+                        "message": str(e),
+                        "code": e.code
+                    }
+                )
             
             if result is None:
                 raise HTTPException(status_code=500, detail="Failed to process document")

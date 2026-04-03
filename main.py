@@ -1,12 +1,16 @@
 import os
 import json
 import sys
+import time
+import uuid
 import boto3
 import base64
 from pathlib import Path
 from dotenv import load_dotenv
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from openai import OpenAI
+from openai import RateLimitError, AuthenticationError, APIConnectionError, APIError
 try:
     import fitz  # PyMuPDF
     PDF_SUPPORT = True
@@ -20,6 +24,7 @@ load_dotenv()
 _textract_client = None
 _s3_client = None
 _openai_client = None
+_fitz_import_error = None
 
 # Boto3 config with timeouts to prevent hanging
 _boto_config = Config(
@@ -27,6 +32,15 @@ _boto_config = Config(
     read_timeout=30,
     retries={'max_attempts': 2}
 )
+
+
+class RouteExtractionError(Exception):
+    """Raised when upstream OCR/LLM extraction fails with actionable status."""
+
+    def __init__(self, message, status_code=500, code=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
 
 
 def get_textract_client():
@@ -61,7 +75,14 @@ def get_openai_client():
     """Lazy initialization of OpenAI client"""
     global _openai_client
     if _openai_client is None:
-        _openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        api_key = (os.getenv('OPENAI_API_KEY') or '').strip()
+        if not api_key:
+            raise RouteExtractionError(
+                "OPENAI_API_KEY is missing. Set it in your environment file.",
+                status_code=500,
+                code="missing_openai_api_key"
+            )
+        _openai_client = OpenAI(api_key=api_key)
     return _openai_client
 
 
@@ -152,42 +173,184 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def get_fitz_module():
+    """Try to import PyMuPDF at runtime so fresh installs are picked up after restart."""
+    global PDF_SUPPORT
+    global _fitz_import_error
+    if 'fitz' in globals():
+        PDF_SUPPORT = True
+        return globals()['fitz']
+
+    try:
+        import fitz as runtime_fitz  # PyMuPDF
+        globals()['fitz'] = runtime_fitz
+        PDF_SUPPORT = True
+        _fitz_import_error = None
+        return runtime_fitz
+    except Exception as e:
+        PDF_SUPPORT = False
+        _fitz_import_error = str(e)
+        return None
+
+
+def extract_text_from_pdf_via_textract_async(file_path, document_name):
+    """Use async Textract flow via S3 for PDFs that fail bytes-based sync OCR."""
+    bucket_name = os.getenv('AWS_S3_BUCKET')
+    if not bucket_name:
+        raise RouteExtractionError(
+            "AWS_S3_BUCKET is required for async PDF processing.",
+            status_code=500,
+            code="missing_s3_bucket"
+        )
+
+    s3_key = f"ocr-temp/{Path(document_name).stem}-{uuid.uuid4()}.pdf"
+
+    try:
+        get_s3_client().upload_file(file_path, bucket_name, s3_key)
+
+        start_response = get_textract_client().start_document_text_detection(
+            DocumentLocation={
+                'S3Object': {
+                    'Bucket': bucket_name,
+                    'Name': s3_key
+                }
+            }
+        )
+        job_id = start_response['JobId']
+
+        timeout_seconds = int(os.getenv('TEXTRACT_PDF_TIMEOUT_SECONDS', '120'))
+        elapsed = 0
+        poll_interval = 2
+
+        while True:
+            status_response = get_textract_client().get_document_text_detection(JobId=job_id)
+            status = status_response.get('JobStatus')
+
+            if status == 'SUCCEEDED':
+                lines = []
+                next_token = None
+
+                while True:
+                    params = {'JobId': job_id}
+                    if next_token:
+                        params['NextToken'] = next_token
+
+                    page_response = get_textract_client().get_document_text_detection(**params)
+                    for block in page_response.get('Blocks', []):
+                        if block.get('BlockType') == 'LINE' and block.get('Text'):
+                            lines.append(block['Text'])
+
+                    next_token = page_response.get('NextToken')
+                    if not next_token:
+                        break
+
+                extracted_text = '\n'.join(lines).strip()
+                if not extracted_text:
+                    raise RouteExtractionError(
+                        "No text could be extracted from the PDF.",
+                        status_code=400,
+                        code="empty_extracted_text"
+                    )
+                return extracted_text
+
+            if status == 'FAILED':
+                status_message = status_response.get('StatusMessage', 'Textract async PDF job failed.')
+                raise RouteExtractionError(
+                    f"Textract async PDF processing failed: {status_message}",
+                    status_code=400,
+                    code="textract_pdf_failed"
+                )
+
+            if elapsed >= timeout_seconds:
+                raise RouteExtractionError(
+                    "Textract async PDF processing timed out.",
+                    status_code=503,
+                    code="textract_pdf_timeout"
+                )
+
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+    except ClientError as e:
+        raise RouteExtractionError(
+            f"AWS Textract/S3 error during async PDF processing: {str(e)}",
+            status_code=502,
+            code="aws_pdf_processing_error"
+        )
+    finally:
+        try:
+            get_s3_client().delete_object(Bucket=bucket_name, Key=s3_key)
+        except Exception:
+            pass
+
+
 def extract_text_from_document(file_path, document_name):
     """Extract text from document using AWS Textract"""
     try:
-        # Handle PDF files - extract text directly from PDF
-        if file_path.lower().endswith('.pdf'):
-            if not PDF_SUPPORT:
-                raise Exception("PDF support requires 'PyMuPDF' library. Install with: pip install pymupdf")
-            
+        is_pdf = file_path.lower().endswith('.pdf')
+        fitz_module = get_fitz_module() if is_pdf else None
+
+        # Handle PDF files - try direct text extraction first for best speed/quality
+        if is_pdf and fitz_module is not None:
             print("  Extracting text from PDF...")
             try:
-                # Try PyMuPDF extraction first (handles encrypted PDFs better)
-                pdf_doc = fitz.open(file_path)
+                pdf_doc = fitz_module.open(file_path)
                 pdf_text = ""
                 for page_num in range(min(1, len(pdf_doc))):  # Get first page only
                     page = pdf_doc[page_num]
                     pdf_text += page.get_text()
                 pdf_doc.close()
-                
+
                 if pdf_text.strip():
                     print("  ✅ PDF text extracted with PyMuPDF")
                     return pdf_text, None
             except Exception as e:
                 print(f"  ⚠️  PyMuPDF extraction failed: {str(e)}")
                 print("  Falling back to AWS Textract...")
-            
-            # Fallback to AWS Textract for PDFs
-            with open(file_path, 'rb') as document:
-                document_bytes = document.read()
-        else:
-            # For images, read directly
-            with open(file_path, 'rb') as document:
-                document_bytes = document.read()
-        
-        # Use synchronous detection with Textract
+        elif is_pdf:
+            reason = _fitz_import_error or "PyMuPDF not installed"
+            print(f"  ⚠️  PyMuPDF unavailable ({reason}); falling back to AWS Textract for PDF")
+
+        with open(file_path, 'rb') as document:
+            document_bytes = document.read()
+
         print("  Calling AWS Textract detect_document_text...")
-        response = get_textract_client().detect_document_text(Document={'Bytes': document_bytes})
+        try:
+            response = get_textract_client().detect_document_text(Document={'Bytes': document_bytes})
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+
+            # Some PDFs are rejected in raw PDF form; retry as PNG when PyMuPDF is available.
+            if is_pdf and error_code == 'UnsupportedDocumentException' and fitz_module is not None:
+                print("  ⚠️  Textract rejected PDF bytes; retrying with first-page PNG...")
+                try:
+                    pdf_doc = fitz_module.open(file_path)
+                    if len(pdf_doc) == 0:
+                        pdf_doc.close()
+                        raise RouteExtractionError(
+                            "PDF has no pages.",
+                            status_code=400,
+                            code="empty_pdf"
+                        )
+
+                    page = pdf_doc[0]
+                    pix = page.get_pixmap(dpi=200, alpha=False)
+                    image_bytes = pix.tobytes("png")
+                    pdf_doc.close()
+                    response = get_textract_client().detect_document_text(Document={'Bytes': image_bytes})
+                except RouteExtractionError:
+                    raise
+                except Exception as conversion_error:
+                    raise RouteExtractionError(
+                        f"Unsupported PDF format for Textract and PNG fallback failed: {str(conversion_error)}",
+                        status_code=400,
+                        code="unsupported_pdf_document"
+                    )
+            elif is_pdf and error_code == 'UnsupportedDocumentException':
+                print("  ⚠️  Textract rejected PDF bytes; retrying with async S3 PDF flow...")
+                return extract_text_from_pdf_via_textract_async(file_path, document_name), None
+            else:
+                raise
         
         # Extract text from response
         extracted_text = '\n'.join([block['Text'] for block in response['Blocks'] if block['BlockType'] == 'LINE'])
@@ -197,6 +360,8 @@ def extract_text_from_document(file_path, document_name):
         
         return extracted_text, None
             
+    except RouteExtractionError:
+        raise
     except Exception as e:
         raise Exception(f"Error extracting text from document: {str(e)}")
 
@@ -267,8 +432,36 @@ Document text:
         
         return route_info
         
+    except RateLimitError as e:
+        raise RouteExtractionError(
+            f"OpenAI quota/rate limit error: {str(e)}",
+            status_code=429,
+            code="openai_rate_limit_or_quota"
+        )
+    except AuthenticationError as e:
+        raise RouteExtractionError(
+            f"OpenAI authentication error: {str(e)}",
+            status_code=401,
+            code="openai_authentication_error"
+        )
+    except APIConnectionError as e:
+        raise RouteExtractionError(
+            f"OpenAI connection error: {str(e)}",
+            status_code=503,
+            code="openai_connection_error"
+        )
+    except APIError as e:
+        raise RouteExtractionError(
+            f"OpenAI API error: {str(e)}",
+            status_code=502,
+            code="openai_api_error"
+        )
     except Exception as e:
-        raise Exception(f"Error extracting route information: {str(e)}")
+        raise RouteExtractionError(
+            f"Error extracting route information: {str(e)}",
+            status_code=500,
+            code="route_extraction_error"
+        )
 
 
 def process_document(file_path):
@@ -318,6 +511,8 @@ def process_document(file_path):
             "route_information": route_info
         }
         
+    except RouteExtractionError:
+        raise
     except Exception as e:
         print(f" Error: {str(e)}")
         return None
