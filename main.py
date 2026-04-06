@@ -3,6 +3,7 @@ import json
 import sys
 import time
 import uuid
+import re
 import boto3
 import base64
 from pathlib import Path
@@ -98,6 +99,10 @@ def __getattr__(name):
 
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'txt', 'jpeg', 'png', 'gif', 'webp'}
 
+# Prefer the strongest model by default; fall back gracefully if unavailable.
+OPENAI_BEST_MODEL = (os.getenv('OPENAI_MODEL') or 'gpt-5').strip() or 'gpt-5'
+OPENAI_FALLBACK_MODEL = (os.getenv('OPENAI_FALLBACK_MODEL') or 'gpt-4o').strip() or 'gpt-4o'
+
 # State abbreviations mapping
 STATE_ABBREVIATIONS = {
     'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
@@ -129,8 +134,6 @@ def expand_abbreviations(text):
     """Expand state, direction, and route abbreviations to full names"""
     if not text:
         return text
-    
-    import re
     
     result = text
     
@@ -171,6 +174,155 @@ def expand_abbreviations_in_dict(obj):
 def allowed_file(filename):
     """Check if file extension is allowed"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _safe_string(value):
+    """Convert a value to a trimmed string, or None when empty."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+    else:
+        text = str(value).strip()
+    return text or None
+
+
+def _safe_string_list(value):
+    """Convert a value to a clean list of non-empty strings."""
+    if not isinstance(value, list):
+        return []
+    items = []
+    for item in value:
+        text = _safe_string(item)
+        if text:
+            items.append(text)
+    return items
+
+
+def _parse_coordinate(value, minimum, maximum):
+    """Parse and validate decimal coordinates within valid geographic bounds."""
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+    elif isinstance(value, str):
+        text = value.strip().replace('°', '')
+        if text.count(',') == 1 and '.' not in text:
+            text = text.replace(',', '.')
+        match = re.search(r'-?\d+(?:\.\d+)?', text)
+        if not match:
+            return None
+        parsed = float(match.group(0))
+    else:
+        return None
+
+    if parsed < minimum or parsed > maximum:
+        return None
+
+    return round(parsed, 7)
+
+
+def _normalize_lat_long(lat_long_data, expected_waypoints):
+    """Normalize coordinate entries and align them to route waypoint order."""
+    normalized = []
+
+    if isinstance(lat_long_data, list):
+        for idx, entry in enumerate(lat_long_data):
+            waypoint = None
+            latitude = None
+            longitude = None
+
+            if isinstance(entry, dict):
+                waypoint = _safe_string(entry.get('waypoint'))
+                latitude = _parse_coordinate(entry.get('latitude', entry.get('lat')), -90, 90)
+                longitude = _parse_coordinate(
+                    entry.get('longitude', entry.get('lng', entry.get('lon', entry.get('long')))),
+                    -180,
+                    180
+                )
+            elif isinstance(entry, list) and len(entry) >= 2:
+                latitude = _parse_coordinate(entry[0], -90, 90)
+                longitude = _parse_coordinate(entry[1], -180, 180)
+
+            if waypoint is None and idx < len(expected_waypoints):
+                waypoint = expected_waypoints[idx]
+
+            if waypoint is not None or latitude is not None or longitude is not None:
+                normalized.append({
+                    'waypoint': waypoint,
+                    'latitude': latitude,
+                    'longitude': longitude
+                })
+
+    if not expected_waypoints:
+        return normalized
+
+    remaining = normalized.copy()
+    ordered = []
+    for waypoint in expected_waypoints:
+        match_idx = next(
+            (i for i, entry in enumerate(remaining) if entry.get('waypoint') == waypoint),
+            None
+        )
+
+        if match_idx is not None:
+            match = remaining.pop(match_idx)
+            ordered.append({
+                'waypoint': waypoint,
+                'latitude': match.get('latitude'),
+                'longitude': match.get('longitude')
+            })
+        elif remaining:
+            match = remaining.pop(0)
+            ordered.append({
+                'waypoint': waypoint,
+                'latitude': match.get('latitude'),
+                'longitude': match.get('longitude')
+            })
+        else:
+            ordered.append({
+                'waypoint': waypoint,
+                'latitude': None,
+                'longitude': None
+            })
+
+    return ordered
+
+
+def normalize_route_information(route_info):
+    """Normalize model output to a stable JSON structure expected by downstream users."""
+    if not isinstance(route_info, dict):
+        route_info = {}
+
+    route_info = expand_abbreviations_in_dict(route_info)
+
+    start_location = _safe_string(route_info.get('start_location'))
+    end_location = _safe_string(route_info.get('end_location'))
+    route_segments = _safe_string_list(route_info.get('route_segments'))
+    permit_type = _safe_string(route_info.get('permit_type')) or 'Unknown'
+
+    expected_waypoints = []
+    if start_location:
+        expected_waypoints.append(start_location)
+    expected_waypoints.extend(route_segments)
+    if end_location:
+        expected_waypoints.append(end_location)
+
+    lat_long = _normalize_lat_long(route_info.get('lat_long'), expected_waypoints)
+
+    normalized = {
+        'start_location': start_location,
+        'end_location': end_location,
+        'route_segments': route_segments,
+        'lat_long': lat_long,
+        'permit_type': permit_type
+    }
+
+    if route_info.get('raw_response'):
+        normalized['raw_response'] = route_info['raw_response']
+
+    return normalized
 
 
 def get_fitz_module():
@@ -383,6 +535,13 @@ From the provided document text, extract the route information and return ONLY a
     "[Road/Highway], [City], [State]",
     ...
   ],
+    "lat_long": [
+        {{
+            "waypoint": "[Same value as start_location or each route segment or end_location]",
+            "latitude": 0.0,
+            "longitude": 0.0
+        }}
+    ],
   "permit_type": "[Permit type, e.g., Oversize / Overweight Single Trip]"
 }}
 
@@ -391,33 +550,71 @@ Rules:
 - Expand all state abbreviations to full state names (e.g., "SD" to "South Dakota", "TX" to "Texas").
 - Ensure road names are properly formatted (e.g., "I-29", "US-75", "SD-11").
 - Keep route segments in the exact order of travel.
+- Add `lat_long` entries for each waypoint in this exact order:
+    1) `start_location`
+    2) each item in `route_segments` in order
+    3) `end_location`
+- `lat_long` must contain the same number of entries as waypoint values included.
+- Each `latitude` and `longitude` must be a decimal number (not a string), using WGS84 decimal degrees.
+- Use the most accurate coordinates you can infer for each waypoint. If unknown, set the coordinate to null.
 - Format locations nicely, guessing the representative city if only a county or highway is provided but you are confident about the general area the route crosses or starts/ends at.
 - Use explicit and clean formatting. For `permit_type`, infer it from the text (e.g. "Oversize / Overweight Single Trip", "Overdimension Superload").
-- If a field cannot be determined, use null for strings and [] for segments.
+- If a field cannot be determined, use null for strings, [] for `route_segments`, and [] for `lat_long`.
 
 Document text:
 {extracted_text}
 """
-        
-        response = get_openai_client().chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are an OCR data extraction specialist. Always respond with valid JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=2000
-        )
-        
-        # Parse the response
-        response_text = response.choices[0].message.content.strip()
-        
-        # Try to extract JSON from response
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an OCR and geospatial extraction specialist. "
+                    "Always respond with valid JSON only."
+                )
+            },
+            {"role": "user", "content": prompt}
+        ]
+
+        model_to_use = OPENAI_BEST_MODEL
+        print(f"  Using OpenAI model: {model_to_use}")
+
+        def _create_completion(model_name):
+            return get_openai_client().chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=0,
+                max_tokens=2500
+            )
+
+        try:
+            response = _create_completion(model_to_use)
+        except APIError as model_error:
+            error_text = str(model_error).lower()
+            model_unavailable = (
+                "not found" in error_text
+                or "does not exist" in error_text
+                or "access" in error_text
+                or "permission" in error_text
+                or "not supported" in error_text
+                or "incompatible" in error_text
+                or "chat.completions" in error_text
+            )
+
+            if model_unavailable and OPENAI_FALLBACK_MODEL != model_to_use:
+                print(
+                    f"  Falling back to model: {OPENAI_FALLBACK_MODEL} "
+                    f"(requested model unavailable)"
+                )
+                response = _create_completion(OPENAI_FALLBACK_MODEL)
+            else:
+                raise
+
+        response_text = (response.choices[0].message.content or "").strip()
+
         try:
             route_info = json.loads(response_text)
         except json.JSONDecodeError:
-            # If response contains JSON but with extra text, try to extract it
-            import re
             json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
                 route_info = json.loads(json_match.group())
@@ -426,11 +623,12 @@ Document text:
                     "start_location": None,
                     "end_location": None,
                     "route_segments": [],
+                    "lat_long": [],
                     "permit_type": "Unknown",
                     "raw_response": response_text
                 }
-        
-        return route_info
+
+        return normalize_route_information(route_info)
         
     except RateLimitError as e:
         raise RouteExtractionError(
