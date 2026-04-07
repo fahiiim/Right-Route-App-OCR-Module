@@ -199,6 +199,77 @@ def _safe_string_list(value):
     return items
 
 
+def _extract_route_label(segment):
+    """Extract a clean road/highway label from a route segment string."""
+    if not segment:
+        return None
+
+    route_label = segment.split(',', 1)[0].strip()
+    route_label = re.sub(
+        r'\s+(Northbound|Southbound|Eastbound|Westbound|NB|SB|EB|WB)\b',
+        '',
+        route_label,
+        flags=re.IGNORECASE
+    )
+    route_label = re.sub(r'\s+', ' ', route_label).strip()
+    return route_label or None
+
+
+def _extract_segment_location(segment):
+    """Extract city/state-style location text from a route segment string."""
+    if not segment:
+        return None
+
+    parts = [part.strip() for part in segment.split(',')]
+    if len(parts) < 2:
+        return None
+
+    location = ', '.join([part for part in parts[1:] if part])
+    return location or None
+
+
+def _build_intersections_from_segments(route_segments):
+    """Create pairwise intersections from adjacent route segments in order."""
+    intersections = []
+
+    for idx in range(len(route_segments) - 1):
+        current_segment = route_segments[idx]
+        next_segment = route_segments[idx + 1]
+
+        current_route = _extract_route_label(current_segment) or current_segment
+        next_route = _extract_route_label(next_segment) or next_segment
+        location = _extract_segment_location(current_segment) or _extract_segment_location(next_segment)
+
+        if location:
+            intersections.append(f"{current_route} and {next_route}, {location}")
+        else:
+            intersections.append(f"{current_route} and {next_route}")
+
+    return intersections
+
+
+def _normalize_intersections(intersection_data, route_segments):
+    """Normalize model intersections and guarantee pairwise count/order."""
+    expected_count = max(len(route_segments) - 1, 0)
+    if expected_count == 0:
+        return []
+
+    normalized = _safe_string_list(intersection_data)
+    generated = _build_intersections_from_segments(route_segments)
+
+    if len(normalized) == expected_count:
+        return normalized
+
+    if not normalized:
+        return generated
+
+    adjusted = normalized[:expected_count]
+    if len(adjusted) < expected_count:
+        adjusted.extend(generated[len(adjusted):expected_count])
+
+    return adjusted
+
+
 def normalize_route_information(route_info):
     """Normalize model output to a stable JSON structure expected by downstream users."""
     if not isinstance(route_info, dict):
@@ -209,12 +280,14 @@ def normalize_route_information(route_info):
     start_location = _safe_string(route_info.get('start_location'))
     end_location = _safe_string(route_info.get('end_location'))
     route_segments = _safe_string_list(route_info.get('route_segments'))
+    intersection = _normalize_intersections(route_info.get('intersection'), route_segments)
     permit_type = _safe_string(route_info.get('permit_type')) or 'Unknown'
 
     normalized = {
         'start_location': start_location,
         'end_location': end_location,
         'route_segments': route_segments,
+        'intersection': intersection,
         'permit_type': permit_type
     }
 
@@ -434,6 +507,10 @@ From the provided document text, extract the route information and return ONLY a
     "[Road/Highway], [City], [State]",
     ...
   ],
+    "intersection": [
+        "[Road from segment i] and [Road from segment i+1], [City], [State]",
+        ...
+    ],
   "permit_type": "[Permit type, e.g., Oversize / Overweight Single Trip]"
 }}
 
@@ -442,9 +519,17 @@ Rules:
 - Expand all state abbreviations to full state names (e.g., "SD" to "South Dakota", "TX" to "Texas").
 - Ensure road names are properly formatted (e.g., "I-29", "US-75", "SD-11").
 - Keep route segments in the exact order of travel.
+- Add `intersection` entries by pairing each consecutive route segment in order:
+    1) intersection[0] = route_segments[0] with route_segments[1]
+    2) intersection[1] = route_segments[1] with route_segments[2]
+    3) continue this pattern to the end
+- Keep intersection order exactly aligned with the route segment order.
+- Format each intersection as: "[Road A] and [Road B], [City], [State]".
+- Use the city/state where those two roads connect. If city is unknown but state is known, still include the state.
+- If `route_segments` has fewer than 2 items, `intersection` must be [].
 - Format locations nicely, guessing the representative city if only a county or highway is provided but you are confident about the general area the route crosses or starts/ends at.
 - Use explicit and clean formatting. For `permit_type`, infer it from the text (e.g. "Oversize / Overweight Single Trip", "Overdimension Superload").
-- If a field cannot be determined, use null for strings and [] for `route_segments`.
+- If a field cannot be determined, use null for strings and [] for `route_segments` and `intersection`.
 
 Document text:
 {extracted_text}
@@ -508,6 +593,7 @@ Document text:
                     "start_location": None,
                     "end_location": None,
                     "route_segments": [],
+                    "intersection": [],
                     "permit_type": "Unknown",
                     "raw_response": response_text
                 }
