@@ -199,97 +199,6 @@ def _safe_string_list(value):
     return items
 
 
-def _parse_coordinate(value, minimum, maximum):
-    """Parse and validate decimal coordinates within valid geographic bounds."""
-    if value is None:
-        return None
-
-    if isinstance(value, (int, float)):
-        parsed = float(value)
-    elif isinstance(value, str):
-        text = value.strip().replace('°', '')
-        if text.count(',') == 1 and '.' not in text:
-            text = text.replace(',', '.')
-        match = re.search(r'-?\d+(?:\.\d+)?', text)
-        if not match:
-            return None
-        parsed = float(match.group(0))
-    else:
-        return None
-
-    if parsed < minimum or parsed > maximum:
-        return None
-
-    return round(parsed, 7)
-
-
-def _normalize_lat_long(lat_long_data, expected_waypoints):
-    """Normalize coordinate entries and align them to route waypoint order."""
-    normalized = []
-
-    if isinstance(lat_long_data, list):
-        for idx, entry in enumerate(lat_long_data):
-            waypoint = None
-            latitude = None
-            longitude = None
-
-            if isinstance(entry, dict):
-                waypoint = _safe_string(entry.get('waypoint'))
-                latitude = _parse_coordinate(entry.get('latitude', entry.get('lat')), -90, 90)
-                longitude = _parse_coordinate(
-                    entry.get('longitude', entry.get('lng', entry.get('lon', entry.get('long')))),
-                    -180,
-                    180
-                )
-            elif isinstance(entry, list) and len(entry) >= 2:
-                latitude = _parse_coordinate(entry[0], -90, 90)
-                longitude = _parse_coordinate(entry[1], -180, 180)
-
-            if waypoint is None and idx < len(expected_waypoints):
-                waypoint = expected_waypoints[idx]
-
-            if waypoint is not None or latitude is not None or longitude is not None:
-                normalized.append({
-                    'waypoint': waypoint,
-                    'latitude': latitude,
-                    'longitude': longitude
-                })
-
-    if not expected_waypoints:
-        return normalized
-
-    remaining = normalized.copy()
-    ordered = []
-    for waypoint in expected_waypoints:
-        match_idx = next(
-            (i for i, entry in enumerate(remaining) if entry.get('waypoint') == waypoint),
-            None
-        )
-
-        if match_idx is not None:
-            match = remaining.pop(match_idx)
-            ordered.append({
-                'waypoint': waypoint,
-                'latitude': match.get('latitude'),
-                'longitude': match.get('longitude')
-            })
-        elif remaining:
-            match = remaining.pop(0)
-            ordered.append({
-                'waypoint': waypoint,
-                'latitude': match.get('latitude'),
-                'longitude': match.get('longitude')
-            })
-        else:
-            ordered.append({
-                'waypoint': waypoint,
-                'latitude': None,
-                'longitude': None
-            })
-
-    return ordered
-
-
 def normalize_route_information(route_info):
     """Normalize model output to a stable JSON structure expected by downstream users."""
     if not isinstance(route_info, dict):
@@ -302,20 +211,10 @@ def normalize_route_information(route_info):
     route_segments = _safe_string_list(route_info.get('route_segments'))
     permit_type = _safe_string(route_info.get('permit_type')) or 'Unknown'
 
-    expected_waypoints = []
-    if start_location:
-        expected_waypoints.append(start_location)
-    expected_waypoints.extend(route_segments)
-    if end_location:
-        expected_waypoints.append(end_location)
-
-    lat_long = _normalize_lat_long(route_info.get('lat_long'), expected_waypoints)
-
     normalized = {
         'start_location': start_location,
         'end_location': end_location,
         'route_segments': route_segments,
-        'lat_long': lat_long,
         'permit_type': permit_type
     }
 
@@ -535,13 +434,6 @@ From the provided document text, extract the route information and return ONLY a
     "[Road/Highway], [City], [State]",
     ...
   ],
-    "lat_long": [
-        {{
-            "waypoint": "[Same value as start_location or each route segment or end_location]",
-            "latitude": 0.0,
-            "longitude": 0.0
-        }}
-    ],
   "permit_type": "[Permit type, e.g., Oversize / Overweight Single Trip]"
 }}
 
@@ -550,16 +442,9 @@ Rules:
 - Expand all state abbreviations to full state names (e.g., "SD" to "South Dakota", "TX" to "Texas").
 - Ensure road names are properly formatted (e.g., "I-29", "US-75", "SD-11").
 - Keep route segments in the exact order of travel.
-- Add `lat_long` entries for each waypoint in this exact order:
-    1) `start_location`
-    2) each item in `route_segments` in order
-    3) `end_location`
-- `lat_long` must contain the same number of entries as waypoint values included.
-- Each `latitude` and `longitude` must be a decimal number (not a string), using WGS84 decimal degrees.
-- Use the most accurate coordinates you can infer for each waypoint. If unknown, set the coordinate to null.
 - Format locations nicely, guessing the representative city if only a county or highway is provided but you are confident about the general area the route crosses or starts/ends at.
 - Use explicit and clean formatting. For `permit_type`, infer it from the text (e.g. "Oversize / Overweight Single Trip", "Overdimension Superload").
-- If a field cannot be determined, use null for strings, [] for `route_segments`, and [] for `lat_long`.
+- If a field cannot be determined, use null for strings and [] for `route_segments`.
 
 Document text:
 {extracted_text}
@@ -623,7 +508,6 @@ Document text:
                     "start_location": None,
                     "end_location": None,
                     "route_segments": [],
-                    "lat_long": [],
                     "permit_type": "Unknown",
                     "raw_response": response_text
                 }
