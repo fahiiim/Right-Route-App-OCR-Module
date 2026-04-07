@@ -260,13 +260,40 @@ def _build_intersections_from_segments(route_segments):
     return intersections
 
 
+def _ensure_near_in_intersection(text):
+    """Ensure intersection strings use "near" before location text."""
+    intersection_text = _safe_string(text)
+    if not intersection_text:
+        return None
+
+    if re.search(r'\bnear\b', intersection_text, flags=re.IGNORECASE):
+        return intersection_text
+
+    if ',' not in intersection_text:
+        return intersection_text
+
+    route_pair, location = intersection_text.split(',', 1)
+    route_pair = route_pair.strip()
+    location = location.strip()
+
+    if route_pair and location:
+        return f"{route_pair} near {location}"
+
+    return intersection_text
+
+
 def _normalize_intersections(intersection_data, route_segments):
     """Normalize model intersections and guarantee pairwise count/order."""
     expected_count = max(len(route_segments) - 1, 0)
     if expected_count == 0:
         return []
 
-    normalized = [item for item in _safe_string_list(intersection_data) if not _contains_ramp(item)]
+    normalized = [
+        _ensure_near_in_intersection(item)
+        for item in _safe_string_list(intersection_data)
+        if not _contains_ramp(item)
+    ]
+    normalized = [item for item in normalized if item]
     generated = _build_intersections_from_segments(route_segments)
 
     if len(normalized) == expected_count:
@@ -537,7 +564,7 @@ Rules:
     2) intersection[1] = route_segments[1] with route_segments[2]
     3) continue this pattern to the end
 - Keep intersection order exactly aligned with the route segment order.
-- Format each intersection as: "[Road A] and [Road B], [City], [State]".
+- Format each intersection as: "[Road A] and [Road B] near [City], [State]".
 - Do NOT include ramps in `intersection` entries.
 - Use the city/state where those two roads connect. If city is unknown but state is known, still include the state.
 - If `route_segments` has fewer than 2 items, `intersection` must be [].
