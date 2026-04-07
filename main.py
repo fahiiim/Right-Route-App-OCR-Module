@@ -199,6 +199,18 @@ def _safe_string_list(value):
     return items
 
 
+def _contains_ramp(text):
+    """Return True when a segment/intersection mentions a ramp."""
+    if not text:
+        return False
+    return bool(re.search(r'\bramp\b', text, flags=re.IGNORECASE))
+
+
+def _remove_ramp_segments(route_segments):
+    """Remove ramp-related route segments while preserving route order."""
+    return [segment for segment in route_segments if not _contains_ramp(segment)]
+
+
 def _extract_route_label(segment):
     """Extract a clean road/highway label from a route segment string."""
     if not segment:
@@ -254,7 +266,7 @@ def _normalize_intersections(intersection_data, route_segments):
     if expected_count == 0:
         return []
 
-    normalized = _safe_string_list(intersection_data)
+    normalized = [item for item in _safe_string_list(intersection_data) if not _contains_ramp(item)]
     generated = _build_intersections_from_segments(route_segments)
 
     if len(normalized) == expected_count:
@@ -279,7 +291,7 @@ def normalize_route_information(route_info):
 
     start_location = _safe_string(route_info.get('start_location'))
     end_location = _safe_string(route_info.get('end_location'))
-    route_segments = _safe_string_list(route_info.get('route_segments'))
+    route_segments = _remove_ramp_segments(_safe_string_list(route_info.get('route_segments')))
     intersection = _normalize_intersections(route_info.get('intersection'), route_segments)
     permit_type = _safe_string(route_info.get('permit_type')) or 'Unknown'
 
@@ -519,12 +531,14 @@ Rules:
 - Expand all state abbreviations to full state names (e.g., "SD" to "South Dakota", "TX" to "Texas").
 - Ensure road names are properly formatted (e.g., "I-29", "US-75", "SD-11").
 - Keep route segments in the exact order of travel.
+- Do NOT include ramps in `route_segments` (e.g., "Ramp", "On Ramp", "Off Ramp"). Skip ramp entries and keep only primary roads/highways.
 - Add `intersection` entries by pairing each consecutive route segment in order:
     1) intersection[0] = route_segments[0] with route_segments[1]
     2) intersection[1] = route_segments[1] with route_segments[2]
     3) continue this pattern to the end
 - Keep intersection order exactly aligned with the route segment order.
 - Format each intersection as: "[Road A] and [Road B], [City], [State]".
+- Do NOT include ramps in `intersection` entries.
 - Use the city/state where those two roads connect. If city is unknown but state is known, still include the state.
 - If `route_segments` has fewer than 2 items, `intersection` must be [].
 - Format locations nicely, guessing the representative city if only a county or highway is provided but you are confident about the general area the route crosses or starts/ends at.
