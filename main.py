@@ -253,7 +253,7 @@ def _build_intersections_from_segments(route_segments):
         location = _extract_segment_location(current_segment) or _extract_segment_location(next_segment)
 
         if location:
-            intersections.append(f"{current_route} and {next_route}, {location}")
+            intersections.append(f"{current_route} and {next_route} near {location}")
         else:
             intersections.append(f"{current_route} and {next_route}")
 
@@ -520,7 +520,7 @@ From the provided document text, extract the route information and return ONLY a
     ...
   ],
     "intersection": [
-        "[Road from segment i] and [Road from segment i+1], [City], [State]",
+        "[Road from segment i] and [Road from segment i+1] near [City], [State]",
         ...
     ],
   "permit_type": "[Permit type, e.g., Oversize / Overweight Single Trip]"
