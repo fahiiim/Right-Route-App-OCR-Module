@@ -184,7 +184,7 @@ async def get_supported_formats():
 
 if __name__ == "__main__":
     import uvicorn
-    host = os.getenv("HOST", "10.10.7.98")
+    host = os.getenv("HOST", "10.10.7.81")
     port = int(os.getenv("PORT", "8001"))
     uvicorn.run(app, host=host, port=port)
 

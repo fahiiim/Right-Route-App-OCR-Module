@@ -44,15 +44,27 @@ class RouteExtractionError(Exception):
         self.code = code
 
 
+def _get_env_value(name, default=None):
+    """Read an environment variable and trim surrounding whitespace."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    if isinstance(value, str):
+        value = value.strip()
+    if value == "":
+        return default
+    return value
+
+
 def get_textract_client():
     """Lazy initialization of Textract client"""
     global _textract_client
     if _textract_client is None:
         _textract_client = boto3.client(
             'textract',
-            region_name=os.getenv('AWS_REGION'),
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+            region_name=_get_env_value('AWS_REGION'),
+            aws_access_key_id=_get_env_value('AWS_ACCESS_KEY'),
+            aws_secret_access_key=_get_env_value('AWS_SECRET_ACCESS_KEY'),
             config=_boto_config
         )
     return _textract_client
@@ -64,9 +76,9 @@ def get_s3_client():
     if _s3_client is None:
         _s3_client = boto3.client(
             's3',
-            region_name=os.getenv('AWS_REGION'),
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+            region_name=_get_env_value('AWS_REGION'),
+            aws_access_key_id=_get_env_value('AWS_ACCESS_KEY'),
+            aws_secret_access_key=_get_env_value('AWS_SECRET_ACCESS_KEY'),
             config=_boto_config
         )
     return _s3_client
@@ -331,7 +343,7 @@ def get_fitz_module():
 
 def extract_text_from_pdf_via_textract_async(file_path, document_name):
     """Use async Textract flow via S3 for PDFs that fail bytes-based sync OCR."""
-    bucket_name = os.getenv('AWS_S3_BUCKET')
+    bucket_name = _get_env_value('AWS_S3_BUCKET')
     if not bucket_name:
         raise RouteExtractionError(
             "AWS_S3_BUCKET is required for async PDF processing.",
@@ -354,7 +366,11 @@ def extract_text_from_pdf_via_textract_async(file_path, document_name):
         )
         job_id = start_response['JobId']
 
-        timeout_seconds = int(os.getenv('TEXTRACT_PDF_TIMEOUT_SECONDS', '120'))
+        timeout_seconds_raw = _get_env_value('TEXTRACT_PDF_TIMEOUT_SECONDS', '120')
+        try:
+            timeout_seconds = int(timeout_seconds_raw)
+        except (TypeError, ValueError):
+            timeout_seconds = 120
         elapsed = 0
         poll_interval = 2
 
@@ -408,10 +424,29 @@ def extract_text_from_pdf_via_textract_async(file_path, document_name):
             elapsed += poll_interval
 
     except ClientError as e:
+        error = e.response.get('Error', {})
+        error_code = error.get('Code', 'Unknown')
+        error_message = error.get('Message') or str(e)
+
+        status_code = 502
+        custom_code = "aws_pdf_processing_error"
+        if error_code in {'NoSuchBucket', 'InvalidS3ObjectException', 'InvalidParameterException'}:
+            status_code = 400
+            custom_code = "aws_invalid_s3_or_pdf_source"
+        elif error_code in {
+            'AccessDenied',
+            'AccessDeniedException',
+            'InvalidAccessKeyId',
+            'SignatureDoesNotMatch',
+            'UnrecognizedClientException'
+        }:
+            status_code = 403
+            custom_code = "aws_auth_or_permission_error"
+
         raise RouteExtractionError(
-            f"AWS Textract/S3 error during async PDF processing: {str(e)}",
-            status_code=502,
-            code="aws_pdf_processing_error"
+            f"AWS Textract/S3 error during async PDF processing ({error_code}): {error_message}",
+            status_code=status_code,
+            code=custom_code
         )
     finally:
         try:
