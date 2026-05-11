@@ -112,7 +112,7 @@ def __getattr__(name):
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'txt', 'jpeg', 'png', 'gif', 'webp'}
 
 # Prefer the strongest model by default; fall back gracefully if unavailable.
-OPENAI_BEST_MODEL = (os.getenv('OPENAI_MODEL') or 'gpt-4o').strip() or 'gpt-4o'
+OPENAI_BEST_MODEL = (os.getenv('OPENAI_MODEL') or 'gpt-4.1').strip() or 'gpt-4.1'
 OPENAI_FALLBACK_MODEL = (os.getenv('OPENAI_FALLBACK_MODEL') or 'gpt-4o').strip() or 'gpt-4o'
 
 # State abbreviations mapping
@@ -128,6 +128,8 @@ STATE_ABBREVIATIONS = {
     'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
     'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
 }
+
+STATE_NAMES = set(STATE_ABBREVIATIONS.values())
 
 # Direction abbreviations mapping
 DIRECTION_ABBREVIATIONS = {
@@ -209,6 +211,38 @@ def _safe_string_list(value):
         if text:
             items.append(text)
     return items
+
+
+def _parse_route_location(text):
+    """Parse '<road>, <city>, <state>' style values into components."""
+    if not text:
+        return "", None, None
+
+    parts = [part.strip() for part in text.split(',') if part.strip()]
+    if len(parts) >= 3 and parts[-1] in STATE_NAMES:
+        road = ', '.join(parts[:-2])
+        return road, parts[-2], parts[-1]
+
+    if len(parts) == 2 and parts[-1] in STATE_NAMES:
+        return parts[0], None, parts[-1]
+
+    if len(parts) >= 2:
+        road = ', '.join(parts[:-1])
+        return road, parts[-1], None
+
+    return parts[0], None, None
+
+
+def _parse_start_end_location(text):
+    """Parse '<city>, <county> County, <state>' into city/state."""
+    if not text:
+        return None, None
+
+    parts = [part.strip() for part in text.split(',') if part.strip()]
+    if len(parts) >= 2 and parts[-1] in STATE_NAMES:
+        return parts[0], parts[-1]
+
+    return None, None
 
 
 def _contains_ramp(text):
@@ -319,6 +353,76 @@ def normalize_route_information(route_info):
         normalized['raw_response'] = route_info['raw_response']
 
     return normalized
+
+
+def _ensure_city_state_for_route(route_info):
+    """Fill missing city/state in segments and intersections when nearby data exists."""
+    if not isinstance(route_info, dict):
+        return route_info
+
+    route_segments = list(route_info.get('route_segments') or [])
+    intersections = list(route_info.get('intersection') or [])
+
+    start_city, start_state = _parse_start_end_location(route_info.get('start_location'))
+    end_city, end_state = _parse_start_end_location(route_info.get('end_location'))
+
+    intersection_locations = []
+    for intersection in intersections:
+        _, city, state = _parse_route_location(intersection)
+        intersection_locations.append((city, state))
+
+    updated_segments = []
+    for idx, segment in enumerate(route_segments):
+        road, city, state = _parse_route_location(segment)
+
+        if not city or not state:
+            fallback_city, fallback_state = None, None
+
+            if idx < len(intersection_locations):
+                fallback_city, fallback_state = intersection_locations[idx]
+
+            if (not fallback_city or not fallback_state) and idx - 1 >= 0:
+                fallback_city, fallback_state = intersection_locations[idx - 1]
+
+            if not fallback_city or not fallback_state:
+                if idx == 0 and start_city and start_state:
+                    fallback_city, fallback_state = start_city, start_state
+                elif idx == len(route_segments) - 1 and end_city and end_state:
+                    fallback_city, fallback_state = end_city, end_state
+
+            if fallback_city and fallback_state:
+                city = city or fallback_city
+                state = state or fallback_state
+
+        if road and city and state:
+            updated_segments.append(f"{road}, {city}, {state}")
+        else:
+            updated_segments.append(segment)
+
+    updated_intersections = []
+    for idx, intersection in enumerate(intersections):
+        roads, city, state = _parse_route_location(intersection)
+
+        if not city or not state:
+            seg_city, seg_state = None, None
+            if idx < len(updated_segments):
+                _, seg_city, seg_state = _parse_route_location(updated_segments[idx])
+
+            if (not seg_city or not seg_state) and idx + 1 < len(updated_segments):
+                _, seg_city, seg_state = _parse_route_location(updated_segments[idx + 1])
+
+            if seg_city and seg_state:
+                city = city or seg_city
+                state = state or seg_state
+
+        if roads and city and state:
+            updated_intersections.append(f"{roads}, {city}, {state}")
+        else:
+            updated_intersections.append(intersection)
+
+    route_info['route_segments'] = updated_segments
+    route_info['intersection'] = updated_intersections
+    return route_info
 
 
 def get_fitz_module():
@@ -566,6 +670,9 @@ Rules:
 - Expand all state abbreviations to full state names (e.g., "SD" to "South Dakota", "TX" to "Texas").
 - Ensure road names are properly formatted (e.g., "I-29", "US-75", "SD-11").
 - Keep route segments in the exact order of travel.
+- Every entry in `route_segments` MUST include a city and full state: "<Road>, <City>, <State>".
+- Every entry in `intersection` MUST include a city and full state: "<Road A> and <Road B>, <City>, <State>".
+- If a city is not explicitly stated but a county, milepost, or nearby town is provided, infer the most likely city from the document context.
 - Do NOT include ramps in `route_segments` (e.g., "Ramp", "On Ramp", "Off Ramp"). Skip ramp entries and keep only primary roads/highways.
 - Add `intersection` entries by pairing each consecutive route segment in order:
     1) intersection[0] = route_segments[0] with route_segments[1]
@@ -647,7 +754,8 @@ Document text:
                     "raw_response": response_text
                 }
 
-        return normalize_route_information(route_info)
+        normalized = normalize_route_information(route_info)
+        return _ensure_city_state_for_route(normalized)
         
     except RateLimitError as e:
         raise RouteExtractionError(
