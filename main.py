@@ -112,7 +112,7 @@ def __getattr__(name):
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'txt', 'jpeg', 'png', 'gif', 'webp'}
 
 # Prefer the strongest model by default; fall back gracefully if unavailable.
-OPENAI_BEST_MODEL = (os.getenv('OPENAI_MODEL') or 'gpt-4o').strip() or 'gpt-4o'
+OPENAI_BEST_MODEL = (os.getenv('OPENAI_MODEL') or 'gpt-4.1').strip() or 'gpt-4.1'
 OPENAI_FALLBACK_MODEL = (os.getenv('OPENAI_FALLBACK_MODEL') or 'gpt-4o').strip() or 'gpt-4o'
 
 # State abbreviations mapping
