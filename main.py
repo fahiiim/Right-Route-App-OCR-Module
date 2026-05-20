@@ -21,6 +21,9 @@ except ImportError:
 # Load environment variables
 load_dotenv()
 
+# Disable __pycache__ generation for this process.
+sys.dont_write_bytecode = True
+
 # Lazy initialization - clients created on first use
 _textract_client = None
 _s3_client = None

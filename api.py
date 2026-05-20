@@ -1,6 +1,7 @@
 import os
 import json
 import tempfile
+import sys
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
@@ -14,6 +15,9 @@ from main import (
 
 # Load environment variables
 load_dotenv()
+
+# Disable __pycache__ generation for this process.
+sys.dont_write_bytecode = True
 
 app = FastAPI(
     title="Social WiFi OCR Module API",
