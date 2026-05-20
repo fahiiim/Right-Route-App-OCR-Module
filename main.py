@@ -233,13 +233,34 @@ def _extract_route_label(segment):
 
     route_label = segment.split(',', 1)[0].strip()
     route_label = re.sub(
-        r'\s+(Northbound|Southbound|Eastbound|Westbound|NB|SB|EB|WB)\b',
+        r'\s+(Northbound|Southbound|Eastbound|Westbound|NB|SB|EB|WB|N|S|E|W)\b',
         '',
         route_label,
         flags=re.IGNORECASE
     )
     route_label = re.sub(r'\s+', ' ', route_label).strip()
     return route_label or None
+
+
+def _strip_direction_suffix(text):
+    """Remove trailing direction tokens from a road label."""
+    if not text:
+        return text
+
+    cleaned = text
+    while True:
+        updated = re.sub(
+            r'\s+(Northbound|Southbound|Eastbound|Westbound|NB|SB|EB|WB|N|S|E|W)\b$',
+            '',
+            cleaned,
+            flags=re.IGNORECASE
+        )
+        if updated == cleaned:
+            break
+        cleaned = updated
+
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned or None
 
 
 def _extract_segment_location(segment):
@@ -255,6 +276,23 @@ def _extract_segment_location(segment):
     return location or None
 
 
+def _normalize_route_segment(segment):
+    """Normalize a route segment by removing direction words from the road label."""
+    text = _safe_string(segment)
+    if not text:
+        return None
+
+    if ',' in text:
+        road_part, location_part = text.split(',', 1)
+        road_part = _strip_direction_suffix(road_part.strip())
+        location_part = location_part.strip()
+        if road_part and location_part:
+            return f"{road_part}, {location_part}"
+        return road_part or location_part or None
+
+    return _strip_direction_suffix(text)
+
+
 def _normalize_intersection_entry(entry):
     """Normalize intersection text formatting to a consistent style."""
     text = _safe_string(entry)
@@ -264,7 +302,24 @@ def _normalize_intersection_entry(entry):
     text = re.sub(r'\s+near\s+', ', ', text, flags=re.IGNORECASE)
     text = re.sub(r'\s*,\s*', ', ', text)
     text = re.sub(r'\s+', ' ', text).strip()
-    return text or None
+
+    if ',' in text:
+        roads_part, location_part = text.split(',', 1)
+        location_part = location_part.strip()
+    else:
+        roads_part, location_part = text, None
+
+    match = re.match(r'^\s*(.*?)\s+and\s+(.*?)\s*$', roads_part, flags=re.IGNORECASE)
+    if match:
+        road_a = _strip_direction_suffix(match.group(1).strip()) or match.group(1).strip()
+        road_b = _strip_direction_suffix(match.group(2).strip()) or match.group(2).strip()
+        roads_part = f"{road_a} and {road_b}"
+    else:
+        roads_part = _strip_direction_suffix(roads_part) or roads_part
+
+    if location_part:
+        return f"{roads_part}, {location_part}"
+    return roads_part or None
 
 
 def _build_intersections_from_segments(route_segments):
@@ -322,7 +377,13 @@ def normalize_route_information(route_info):
 
     start_location = _safe_string(route_info.get('start_location'))
     end_location = _safe_string(route_info.get('end_location'))
-    route_segments = _remove_ramp_segments(_safe_string_list(route_info.get('route_segments')))
+    raw_segments = _safe_string_list(route_info.get('route_segments'))
+    normalized_segments = []
+    for segment in raw_segments:
+        cleaned_segment = _normalize_route_segment(segment)
+        if cleaned_segment:
+            normalized_segments.append(cleaned_segment)
+    route_segments = _remove_ramp_segments(normalized_segments)
     intersection = _normalize_intersections(route_info.get('intersection'), route_segments)
     permit_type = _safe_string(route_info.get('permit_type')) or 'Unknown'
 
