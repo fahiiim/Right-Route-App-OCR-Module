@@ -252,6 +252,18 @@ def _extract_segment_location(segment):
     return location or None
 
 
+def _normalize_intersection_entry(entry):
+    """Normalize intersection text formatting to a consistent style."""
+    text = _safe_string(entry)
+    if not text:
+        return None
+
+    text = re.sub(r'\s+near\s+', ', ', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s*,\s*', ', ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text or None
+
+
 def _build_intersections_from_segments(route_segments):
     """Create pairwise intersections from adjacent route segments in order."""
     intersections = []
@@ -265,7 +277,7 @@ def _build_intersections_from_segments(route_segments):
         location = _extract_segment_location(current_segment) or _extract_segment_location(next_segment)
 
         if location:
-            intersections.append(f"{current_route} and {next_route} near {location}")
+            intersections.append(f"{current_route} and {next_route}, {location}")
         else:
             intersections.append(f"{current_route} and {next_route}")
 
@@ -278,7 +290,11 @@ def _normalize_intersections(intersection_data, route_segments):
     if expected_count == 0:
         return []
 
-    normalized = [item for item in _safe_string_list(intersection_data) if not _contains_ramp(item)]
+    normalized = []
+    for item in _safe_string_list(intersection_data):
+        normalized_item = _normalize_intersection_entry(item)
+        if normalized_item and not _contains_ramp(normalized_item):
+            normalized.append(normalized_item)
     generated = _build_intersections_from_segments(route_segments)
 
     if len(normalized) == expected_count:
@@ -719,7 +735,11 @@ def process_document(file_path):
         
         print(" Route extraction successful")
         print(f"\n  Route Information:\n{'-' * 60}")
-        print(json.dumps(route_info, indent=2))
+        response_payload = {
+            "success": True,
+            "route_information": route_info
+        }
+        print(json.dumps(response_payload, indent=2))
         print("-" * 60)
         
         return {
