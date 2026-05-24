@@ -683,7 +683,7 @@ Document text:
                 model=model_name,
                 messages=messages,
                 temperature=0,
-                max_tokens=2500
+                max_tokens=10000
             )
 
         try:
