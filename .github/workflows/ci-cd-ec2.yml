@@ -12,8 +12,11 @@ concurrency:
 
 jobs:
   ci:
-    name: CI checks
+    name: CI checks and image package
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: right-route-ocr:${{ github.sha }}
+      IMAGE_TAR: right-route-ocr-${{ github.sha }}.tar.gz
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,16 +36,35 @@ jobs:
           python -m compileall -q api.py main.py
 
       - name: Build Docker image
-        run: docker build -t right-route-ocr:ci .
+        run: docker build -t "${IMAGE_TAG}" .
+
+      - name: Export Docker image artifact
+        run: docker save "${IMAGE_TAG}" | gzip > "${IMAGE_TAR}"
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: right-route-ocr-image
+          path: ${{ env.IMAGE_TAR }}
+          retention-days: 1
 
   deploy:
     name: CD deploy to EC2
     needs: ci
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: right-route-ocr:${{ github.sha }}
+      IMAGE_TAR: right-route-ocr-${{ github.sha }}.tar.gz
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: right-route-ocr-image
+          path: .
 
       - name: Prepare deploy directory
         uses: appleboy/ssh-action@v1.2.0
@@ -65,7 +87,20 @@ jobs:
           host: ${{ secrets['EC2_HOST'] }}
           username: ${{ secrets['EC2_USER'] }}
           key: ${{ secrets['EC2_SSH_KEY'] }}
-          source: "api.py,main.py,requirements.txt,Dockerfile,docker-compose.yml,.dockerignore,.env.example,README.md,LICENSE"
+          source: "docker-compose.ec2.yml"
+          target: "/opt/right-route-ocr"
+          overwrite: true
+          rm: false
+          strip_components: 0
+          tar_dereference: true
+
+      - name: Sync Docker image artifact to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets['EC2_HOST'] }}
+          username: ${{ secrets['EC2_USER'] }}
+          key: ${{ secrets['EC2_SSH_KEY'] }}
+          source: ${{ env.IMAGE_TAR }}
           target: "/opt/right-route-ocr"
           overwrite: true
           rm: false
@@ -75,6 +110,8 @@ jobs:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          IMAGE_TAR: ${{ env.IMAGE_TAR }}
           PORT: ${{ secrets['PORT'] }}
           AWS_REGION: ${{ secrets['AWS_REGION'] }}
           AWS_ACCESS_KEY: ${{ secrets['AWS_ACCESS_KEY'] }}
@@ -87,7 +124,7 @@ jobs:
           key: ${{ secrets['EC2_SSH_KEY'] }}
           command_timeout: 45m
           script_stop: true
-          envs: PORT,AWS_REGION,AWS_ACCESS_KEY,AWS_SECRET_ACCESS_KEY,AWS_S3_BUCKET,OPENAI_API_KEY
+          envs: IMAGE_TAG,IMAGE_TAR,PORT,AWS_REGION,AWS_ACCESS_KEY,AWS_SECRET_ACCESS_KEY,AWS_S3_BUCKET,OPENAI_API_KEY
           script: |
             set -eu
 
@@ -100,6 +137,14 @@ jobs:
             if ! docker info >/dev/null 2>&1; then
               USE_SUDO_DOCKER=1
             fi
+
+            docker_cmd() {
+              if [ "${USE_SUDO_DOCKER}" -eq 1 ]; then
+                sudo docker "$@"
+              else
+                docker "$@"
+              fi
+            }
 
             docker_compose() {
               if [ "${USE_SUDO_DOCKER}" -eq 1 ]; then
@@ -118,7 +163,7 @@ jobs:
             APP_DIR=/opt/right-route-ocr
             APP_PORT="${PORT:-8001}"
 
-            for required in AWS_REGION AWS_ACCESS_KEY AWS_SECRET_ACCESS_KEY OPENAI_API_KEY; do
+            for required in AWS_REGION AWS_ACCESS_KEY AWS_SECRET_ACCESS_KEY OPENAI_API_KEY IMAGE_TAG IMAGE_TAR; do
               eval "value=\${$required:-}"
               if [ -z "${value}" ]; then
                 echo "Missing required GitHub Secret: ${required}"
@@ -134,8 +179,18 @@ jobs:
 
             cd "${APP_DIR}"
 
+            if [ ! -f "${IMAGE_TAR}" ]; then
+              echo "Docker image artifact not found: ${IMAGE_TAR}"
+              ls -la
+              exit 1
+            fi
+
+            gzip -dc "${IMAGE_TAR}" | docker_cmd load
+            rm -f "${IMAGE_TAR}"
+
             cat > .env <<EOF
             PORT=${APP_PORT}
+            IMAGE_NAME=${IMAGE_TAG}
             AWS_REGION=${AWS_REGION}
             AWS_ACCESS_KEY=${AWS_ACCESS_KEY}
             AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -143,8 +198,8 @@ jobs:
             OPENAI_API_KEY=${OPENAI_API_KEY}
             EOF
 
-            docker_compose down --remove-orphans || true
-            docker_compose up --build -d
+            docker_compose -f docker-compose.ec2.yml down --remove-orphans || true
+            docker_compose -f docker-compose.ec2.yml up -d --force-recreate
 
             HEALTH_URL="http://127.0.0.1:${APP_PORT}/"
             ATTEMPTS=20
@@ -166,6 +221,6 @@ jobs:
             done
 
             echo "Health check failed after deployment."
-            docker_compose ps
-            docker_compose logs --tail=100
+            docker_compose -f docker-compose.ec2.yml ps
+            docker_compose -f docker-compose.ec2.yml logs --tail=100
             exit 1

@@ -62,13 +62,15 @@ On every push to main:
 
 1. Install Python dependencies
 2. Run syntax validation
-3. Build Docker image
+3. Build Docker image on GitHub runner
+4. Export image as artifact (.tar.gz)
 4. SSH into EC2 and prepare deploy directory
-5. Copy latest project files to EC2 over SCP
-6. Rebuild and restart Docker Compose service
+5. Copy deployment compose file and image artifact to EC2 over SCP
+6. Load image and restart Docker Compose service (no docker build on EC2)
 7. Run health check on API root endpoint
 
 This means EC2 does not need direct git access to your private repository.
+It also avoids out-of-memory failures from building large Docker images on small EC2 instances.
 
 ## 5. Verify Deployment
 
