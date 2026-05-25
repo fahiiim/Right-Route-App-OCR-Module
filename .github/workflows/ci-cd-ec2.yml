@@ -63,8 +63,27 @@ jobs:
             set -eu
 
             if ! command -v docker >/dev/null 2>&1; then
-              echo "Docker is not installed. Run scripts/bootstrap-ec2.sh on the instance first."
-              exit 1
+              echo "Docker not found. Installing Docker engine..."
+              curl -fsSL https://get.docker.com | sudo sh
+            fi
+
+            USE_SUDO_DOCKER=0
+            if ! docker info >/dev/null 2>&1; then
+              USE_SUDO_DOCKER=1
+            fi
+
+            docker_compose() {
+              if [ "${USE_SUDO_DOCKER}" -eq 1 ]; then
+                sudo docker compose "$@"
+              else
+                docker compose "$@"
+              fi
+            }
+
+            if ! docker_compose version >/dev/null 2>&1; then
+              echo "Docker Compose plugin not found. Installing..."
+              sudo apt-get update
+              sudo apt-get install -y docker-compose-plugin
             fi
 
             APP_DIR=/opt/right-route-ocr
@@ -111,8 +130,8 @@ jobs:
             OPENAI_API_KEY=${OPENAI_API_KEY}
             EOF
 
-            docker compose down --remove-orphans || true
-            docker compose up --build -d
+            docker_compose down --remove-orphans || true
+            docker_compose up --build -d
 
             HEALTH_URL="http://127.0.0.1:${APP_PORT}/"
             ATTEMPTS=20
@@ -134,6 +153,6 @@ jobs:
             done
 
             echo "Health check failed after deployment."
-            docker compose ps
-            docker compose logs --tail=100
+            docker_compose ps
+            docker_compose logs --tail=100
             exit 1
