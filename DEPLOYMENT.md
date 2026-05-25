@@ -53,7 +53,6 @@ In GitHub repo settings, add these secrets:
 
 - AWS_S3_BUCKET
 - PORT (defaults to 8001)
-- REPO_URL (only needed if using private/non-standard repo URL)
 
 ## 4. CI/CD Flow
 
@@ -64,10 +63,12 @@ On every push to main:
 1. Install Python dependencies
 2. Run syntax validation
 3. Build Docker image
-4. SSH into EC2
-5. Pull latest code on EC2
+4. SSH into EC2 and prepare deploy directory
+5. Copy latest project files to EC2 over SCP
 6. Rebuild and restart Docker Compose service
 7. Run health check on API root endpoint
+
+This means EC2 does not need direct git access to your private repository.
 
 ## 5. Verify Deployment
 
@@ -89,4 +90,4 @@ docker compose ps
 docker compose logs --tail=200
 ```
 
-If the repo is private and clone fails, set REPO_URL secret to a URL that includes access permissions.
+If deployment fails at file sync, verify EC2_HOST, EC2_USER, and EC2_SSH_KEY secrets.
