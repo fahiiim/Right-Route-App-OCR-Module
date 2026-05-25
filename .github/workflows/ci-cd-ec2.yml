@@ -50,6 +50,7 @@ jobs:
           host: ${{ secrets['EC2_HOST'] }}
           username: ${{ secrets['EC2_USER'] }}
           key: ${{ secrets['EC2_SSH_KEY'] }}
+          command_timeout: 15m
           script_stop: true
           script: |
             set -eu
@@ -84,6 +85,7 @@ jobs:
           host: ${{ secrets['EC2_HOST'] }}
           username: ${{ secrets['EC2_USER'] }}
           key: ${{ secrets['EC2_SSH_KEY'] }}
+          command_timeout: 45m
           script_stop: true
           envs: PORT,AWS_REGION,AWS_ACCESS_KEY,AWS_SECRET_ACCESS_KEY,AWS_S3_BUCKET,OPENAI_API_KEY
           script: |
