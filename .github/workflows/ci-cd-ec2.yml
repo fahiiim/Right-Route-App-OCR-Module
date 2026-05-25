@@ -126,6 +126,12 @@ jobs:
               fi
             done
 
+            if ! echo "${AWS_REGION}" | grep -Eq '^[a-z]{2}-[a-z]+-[0-9]+$'; then
+              echo "Invalid AWS_REGION secret value: ${AWS_REGION}"
+              echo "Use region code format such as eu-north-1 or us-east-1."
+              exit 1
+            fi
+
             cd "${APP_DIR}"
 
             cat > .env <<EOF
