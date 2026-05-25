@@ -179,6 +179,8 @@ jobs:
 
             cd "${APP_DIR}"
 
+            docker_cmd image prune -af || true
+
             if [ ! -f "${IMAGE_TAR}" ]; then
               echo "Docker image artifact not found: ${IMAGE_TAR}"
               ls -la
