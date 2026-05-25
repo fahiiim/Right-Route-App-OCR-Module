@@ -207,6 +207,18 @@ docker compose down
 
 ---
 
+## EC2 CI/CD Deployment
+
+This repository includes a production deployment workflow for EC2.
+
+- Workflow file: `.github/workflows/ci-cd-ec2.yml`
+- Full setup guide: `DEPLOYMENT.md`
+- One-time EC2 bootstrap script: `scripts/bootstrap-ec2.sh`
+
+Pushes to `main` run CI checks, build the Docker image, and deploy over SSH to EC2.
+
+---
+
 ## Live Link From Docker (No Cloud Deployment)
 
 If your container is already running on port `8001`, you can create a temporary public link directly from your machine.

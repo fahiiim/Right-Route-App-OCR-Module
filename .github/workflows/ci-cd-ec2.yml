@@ -1,0 +1,139 @@
+name: CI-CD Deploy EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: right-route-ec2-deploy
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: CI checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate syntax
+        run: |
+          python -m compileall -q api.py main.py
+
+      - name: Build Docker image
+        run: docker build -t right-route-ocr:ci .
+
+  deploy:
+    name: CD deploy to EC2
+    needs: ci
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          PORT: ${{ secrets['PORT'] }}
+          REPO_URL: ${{ secrets['REPO_URL'] }}
+          AWS_REGION: ${{ secrets['AWS_REGION'] }}
+          AWS_ACCESS_KEY: ${{ secrets['AWS_ACCESS_KEY'] }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets['AWS_SECRET_ACCESS_KEY'] }}
+          AWS_S3_BUCKET: ${{ secrets['AWS_S3_BUCKET'] }}
+          OPENAI_API_KEY: ${{ secrets['OPENAI_API_KEY'] }}
+        with:
+          host: ${{ secrets['EC2_HOST'] }}
+          username: ${{ secrets['EC2_USER'] }}
+          key: ${{ secrets['EC2_SSH_KEY'] }}
+          script_stop: true
+          envs: GITHUB_REPOSITORY,GITHUB_REF_NAME,PORT,REPO_URL,AWS_REGION,AWS_ACCESS_KEY,AWS_SECRET_ACCESS_KEY,AWS_S3_BUCKET,OPENAI_API_KEY
+          script: |
+            set -eu
+
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "Docker is not installed. Run scripts/bootstrap-ec2.sh on the instance first."
+              exit 1
+            fi
+
+            APP_DIR=/opt/right-route-ocr
+            DEPLOY_USER="$(id -un)"
+            BRANCH="${GITHUB_REF_NAME}"
+            APP_PORT="${PORT:-8001}"
+
+            if [ -z "${REPO_URL:-}" ]; then
+              REPO_URL="https://github.com/${GITHUB_REPOSITORY}.git"
+            fi
+
+            for required in AWS_REGION AWS_ACCESS_KEY AWS_SECRET_ACCESS_KEY OPENAI_API_KEY; do
+              eval "value=\${$required:-}"
+              if [ -z "${value}" ]; then
+                echo "Missing required GitHub Secret: ${required}"
+                exit 1
+              fi
+            done
+
+            if [ ! -d "${APP_DIR}" ]; then
+              sudo mkdir -p "${APP_DIR}"
+              sudo chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "${APP_DIR}"
+            fi
+
+            if [ ! -d "${APP_DIR}/.git" ]; then
+              git clone "${REPO_URL}" "${APP_DIR}"
+            fi
+
+            cd "${APP_DIR}"
+            git fetch origin "${BRANCH}"
+            if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+              git checkout "${BRANCH}"
+            else
+              git checkout -b "${BRANCH}" "origin/${BRANCH}"
+            fi
+            git pull --ff-only origin "${BRANCH}"
+
+            cat > .env <<EOF
+            PORT=${APP_PORT}
+            AWS_REGION=${AWS_REGION}
+            AWS_ACCESS_KEY=${AWS_ACCESS_KEY}
+            AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            AWS_S3_BUCKET=${AWS_S3_BUCKET}
+            OPENAI_API_KEY=${OPENAI_API_KEY}
+            EOF
+
+            docker compose down --remove-orphans || true
+            docker compose up --build -d
+
+            HEALTH_URL="http://127.0.0.1:${APP_PORT}/"
+            ATTEMPTS=20
+            COUNT=1
+            until [ "${COUNT}" -gt "${ATTEMPTS}" ]; do
+              if command -v curl >/dev/null 2>&1; then
+                if curl --fail --silent "${HEALTH_URL}" >/dev/null; then
+                  echo "Deployment successful. Health check passed."
+                  exit 0
+                fi
+              elif command -v wget >/dev/null 2>&1; then
+                if wget -q -O /dev/null "${HEALTH_URL}"; then
+                  echo "Deployment successful. Health check passed."
+                  exit 0
+                fi
+              fi
+              sleep 3
+              COUNT=$((COUNT + 1))
+            done
+
+            echo "Health check failed after deployment."
+            docker compose ps
+            docker compose logs --tail=100
+            exit 1
