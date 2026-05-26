@@ -10,6 +10,9 @@ concurrency:
   group: right-route-ec2-deploy
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   ci:
     name: CI checks and image package
@@ -87,7 +90,7 @@ jobs:
           host: ${{ secrets['EC2_HOST'] }}
           username: ${{ secrets['EC2_USER'] }}
           key: ${{ secrets['EC2_SSH_KEY'] }}
-          source: "docker-compose.ec2.yml"
+          source: "docker-compose.ec2.yml,Dockerfile,requirements.txt,api.py,main.py"
           target: "/opt/right-route-ocr"
           overwrite: true
           rm: false
@@ -161,7 +164,19 @@ jobs:
             fi
 
             APP_DIR=/opt/right-route-ocr
+            COMPOSE_FILE=docker-compose.ec2.yml
             APP_PORT="${PORT:-8001}"
+
+            if ! echo "${APP_PORT}" | grep -Eq '^[0-9]+$'; then
+              echo "Invalid PORT secret value: ${APP_PORT}"
+              echo "Use a numeric port value between 1 and 65535."
+              exit 1
+            fi
+
+            if [ "${APP_PORT}" -lt 1 ] || [ "${APP_PORT}" -gt 65535 ]; then
+              echo "PORT out of range: ${APP_PORT}"
+              exit 1
+            fi
 
             for required in AWS_REGION AWS_ACCESS_KEY AWS_SECRET_ACCESS_KEY OPENAI_API_KEY IMAGE_TAG IMAGE_TAR; do
               eval "value=\${$required:-}"
@@ -190,39 +205,94 @@ jobs:
             gzip -dc "${IMAGE_TAR}" | docker_cmd load
             rm -f "${IMAGE_TAR}"
 
-            cat > .env <<EOF
-            PORT=${APP_PORT}
-            IMAGE_NAME=${IMAGE_TAG}
-            AWS_REGION=${AWS_REGION}
-            AWS_ACCESS_KEY=${AWS_ACCESS_KEY}
-            AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            AWS_S3_BUCKET=${AWS_S3_BUCKET}
-            OPENAI_API_KEY=${OPENAI_API_KEY}
-            EOF
+            normalize_arch() {
+              case "$1" in
+                x86_64|amd64)
+                  echo "amd64"
+                  ;;
+                aarch64|arm64)
+                  echo "arm64"
+                  ;;
+                *)
+                  echo "$1"
+                  ;;
+              esac
+            }
 
-            docker_compose -f docker-compose.ec2.yml down --remove-orphans || true
-            docker_compose -f docker-compose.ec2.yml up -d --force-recreate
+            HOST_ARCH="$(normalize_arch "$(uname -m)")"
+            IMAGE_ARCH="$(docker_cmd image inspect "${IMAGE_TAG}" --format '{{.Architecture}}' 2>/dev/null || echo unknown)"
+            IMAGE_ARCH="$(normalize_arch "${IMAGE_ARCH}")"
+
+            if [ "${IMAGE_ARCH}" != "unknown" ] && [ "${IMAGE_ARCH}" != "${HOST_ARCH}" ]; then
+              echo "Image architecture ${IMAGE_ARCH} does not match host ${HOST_ARCH}."
+              echo "Building a native image on EC2 as fallback..."
+              docker_cmd build -t "${IMAGE_TAG}" .
+            fi
+
+            AWS_S3_BUCKET="${AWS_S3_BUCKET:-}"
+
+            {
+              echo "PORT=${APP_PORT}"
+              echo "IMAGE_NAME=${IMAGE_TAG}"
+              echo "AWS_REGION=${AWS_REGION}"
+              echo "AWS_ACCESS_KEY=${AWS_ACCESS_KEY}"
+              echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"
+              echo "AWS_S3_BUCKET=${AWS_S3_BUCKET}"
+              echo "OPENAI_API_KEY=${OPENAI_API_KEY}"
+            } > .env
+
+            docker_compose -f "${COMPOSE_FILE}" down --remove-orphans || true
+
+            if ! docker_compose -f "${COMPOSE_FILE}" up -d --force-recreate; then
+              echo "docker compose up returned a non-zero status. Continuing with diagnostics..."
+            fi
 
             HEALTH_URL="http://127.0.0.1:${APP_PORT}/"
-            ATTEMPTS=20
+
+            http_ready() {
+              if command -v curl >/dev/null 2>&1; then
+                curl --fail --silent --max-time 5 "${HEALTH_URL}" >/dev/null 2>&1
+                return $?
+              fi
+              if command -v wget >/dev/null 2>&1; then
+                wget -q -O /dev/null "${HEALTH_URL}" >/dev/null 2>&1
+                return $?
+              fi
+              return 2
+            }
+
+            ATTEMPTS=40
             COUNT=1
             until [ "${COUNT}" -gt "${ATTEMPTS}" ]; do
-              if command -v curl >/dev/null 2>&1; then
-                if curl --fail --silent "${HEALTH_URL}" >/dev/null; then
-                  echo "Deployment successful. Health check passed."
-                  exit 0
-                fi
-              elif command -v wget >/dev/null 2>&1; then
-                if wget -q -O /dev/null "${HEALTH_URL}"; then
-                  echo "Deployment successful. Health check passed."
-                  exit 0
-                fi
+              CONTAINER_STATE="$(docker_cmd inspect --format '{{.State.Status}}' right-route-ocr-api 2>/dev/null || true)"
+              CONTAINER_HEALTH="$(docker_cmd inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' right-route-ocr-api 2>/dev/null || true)"
+
+              if [ "${CONTAINER_STATE}" = "exited" ] || [ "${CONTAINER_STATE}" = "dead" ]; then
+                echo "Container stopped unexpectedly during deployment."
+                docker_compose -f "${COMPOSE_FILE}" ps || true
+                docker_compose -f "${COMPOSE_FILE}" logs --tail=200 || true
+                exit 1
               fi
+
+              if http_ready; then
+                echo "Deployment successful. HTTP health check passed at ${HEALTH_URL}."
+                exit 0
+              fi
+
+              if [ "${CONTAINER_HEALTH}" = "healthy" ]; then
+                echo "Deployment successful. Container health is healthy."
+                exit 0
+              fi
+
+              if [ "${COUNT}" -eq 1 ] || [ $((COUNT % 5)) -eq 0 ]; then
+                echo "Waiting for readiness (${COUNT}/${ATTEMPTS}) state=${CONTAINER_STATE:-unknown} health=${CONTAINER_HEALTH:-unknown}"
+              fi
+
               sleep 3
               COUNT=$((COUNT + 1))
             done
 
             echo "Health check failed after deployment."
-            docker_compose -f docker-compose.ec2.yml ps
-            docker_compose -f docker-compose.ec2.yml logs --tail=100
+            docker_compose -f "${COMPOSE_FILE}" ps || true
+            docker_compose -f "${COMPOSE_FILE}" logs --tail=200 || true
             exit 1
