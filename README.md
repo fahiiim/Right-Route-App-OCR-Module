@@ -28,7 +28,7 @@
 
 </div>
 
-> **Professional-grade OCR solution for automated route extraction from permit documents and images**
+> **Professional-grade OCR solution for automated route extraction from permit documents and images AND VOICE PROCESSING**
 
 ## Overview
 
