@@ -83,6 +83,31 @@ jobs:
           name: right-route-ocr-image
           path: .
 
+      - name: Validate deploy secrets format
+        env:
+          PORT: ${{ secrets['PORT'] }}
+          AWS_REGION: ${{ secrets['AWS_REGION'] }}
+        run: |
+          set -eu
+          APP_PORT="${PORT:-8001}"
+
+          if ! echo "${APP_PORT}" | grep -Eq '^[0-9]+$'; then
+            echo "::error::PORT must be numeric only (example: 8001). Do not include PORT=."
+            exit 1
+          fi
+
+          if [ "${APP_PORT}" -lt 1 ] || [ "${APP_PORT}" -gt 65535 ]; then
+            echo "::error::PORT is out of range. Allowed range is 1..65535."
+            exit 1
+          fi
+
+          if ! echo "${AWS_REGION}" | grep -Eq '^[a-z]{2}-[a-z]+-[0-9]+$'; then
+            echo "::error::AWS_REGION must use format like eu-north-1. Do not include AWS_REGION=."
+            exit 1
+          fi
+
+          echo "Deploy secret format checks passed."
+
       - name: Prepare deploy directory
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -139,11 +164,15 @@ jobs:
           host: ${{ secrets['EC2_HOST'] }}
           username: ${{ secrets['EC2_USER'] }}
           key: ${{ secrets['EC2_SSH_KEY'] }}
+          debug: true
           command_timeout: 45m
           script_stop: true
           envs: IMAGE_TAG,IMAGE_TAR,PORT,AWS_REGION,AWS_ACCESS_KEY,AWS_SECRET_ACCESS_KEY,AWS_S3_BUCKET,OPENAI_API_KEY
           script: |
             set -eu
+
+            echo "[deploy] Starting remote deployment script"
+            echo "[deploy] Checking Docker availability"
 
             if ! command -v docker >/dev/null 2>&1; then
               echo "Docker not found. Installing Docker engine..."
@@ -177,6 +206,8 @@ jobs:
               sudo apt-get install -y docker-compose-plugin
             fi
 
+            echo "[deploy] Validating deploy parameters"
+
             APP_DIR=/opt/right-route-ocr
             COMPOSE_FILE=docker-compose.ec2.yml
             APP_PORT="${PORT:-8001}"
@@ -206,6 +237,7 @@ jobs:
               exit 1
             fi
 
+            echo "[deploy] Loading image artifact"
             cd "${APP_DIR}"
 
             docker_cmd image prune -af || true
@@ -255,6 +287,7 @@ jobs:
               echo "OPENAI_API_KEY=${OPENAI_API_KEY}"
             } > .env
 
+            echo "[deploy] Restarting compose service"
             docker_compose -f "${COMPOSE_FILE}" down --remove-orphans || true
 
             if ! docker_compose -f "${COMPOSE_FILE}" up -d --force-recreate; then
