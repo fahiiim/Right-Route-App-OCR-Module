@@ -1,6 +1,6 @@
 import unittest
 
-from main import classify_route_quality, extract_route_information_deterministic
+from main import classify_route_quality, extract_route_information_deterministic, normalize_route_information
 
 
 class DeterministicFallbackTests(unittest.TestCase):
@@ -37,6 +37,26 @@ class DeterministicFallbackTests(unittest.TestCase):
 
             self.assertEqual(entry, expected)
         self.assertEqual(classify_route_quality(route_info), "complete-route")
+
+    def test_intersection_uses_route_codes_with_city_state(self):
+        route_info = {
+            "start_location": "Greenville, North Carolina",
+            "end_location": "Greenville, North Carolina",
+            "route_segments": [
+                "West 10th Street (SR-1598), Greenville, North Carolina",
+                "Charles Boulevard (SR-1707), Greenville, North Carolina",
+            ],
+            "intersection": [
+                "West 10th Street (SR-1598) and Charles Boulevard (SR-1707), Greenville, North Carolina"
+            ],
+            "permit_type": "Oversize / Overweight Single Trip",
+        }
+
+        normalized = normalize_route_information(route_info)
+        self.assertEqual(
+            normalized.get("intersection"),
+            ["SR-1598 and SR-1707, Greenville, North Carolina"],
+        )
 
 
 if __name__ == "__main__":

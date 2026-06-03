@@ -325,6 +325,67 @@ def _remove_ramp_segments(route_segments):
     return [segment for segment in route_segments if not _contains_ramp(segment)]
 
 
+def _format_route_suffix(suffix):
+    """Normalize optional route suffix tokens for stable route labels."""
+    token = (suffix or '').strip().upper()
+    if not token:
+        return ''
+
+    mapping = {
+        'BUS': 'Business',
+        'BUSINESS': 'Business',
+        'BYPASS': 'Bypass',
+        'ALT': 'Alternate',
+        'ALTERNATE': 'Alternate',
+        'TRUCK': 'Truck',
+        'LOOP': 'Loop'
+    }
+    return f" {mapping.get(token, token.title())}"
+
+
+def _extract_route_code(text):
+    """Extract a canonical route code from free-form road text."""
+    value = _safe_string(text)
+    if not value:
+        return None
+
+    normalized = value.upper()
+    normalized = re.sub(r'\bHIGHWAY\b', 'HWY', normalized)
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+
+    patterns = [
+        (r'\bSR[-\s]*(\d{1,5})\b', lambda m: f"SR-{m.group(1)}"),
+        (r'\bI(?:NTERSTATE)?[-\s]*(\d{1,4})\b', lambda m: f"I-{m.group(1)}"),
+        (
+            r'\bUS(?:\s*(?:HWY|ROUTE))?[-\s]*(\d{1,4})(?:\s*(BUSINESS|BUS|BYPASS|ALT(?:ERNATE)?|TRUCK|LOOP))?\b',
+            lambda m: f"US-{m.group(1)}{_format_route_suffix(m.group(2))}"
+        ),
+        (
+            r'\bNC(?:\s*(?:HWY|ROUTE))?[-\s]*(\d{1,4})(?:\s*(BUSINESS|BUS|BYPASS|ALT(?:ERNATE)?|TRUCK|LOOP))?\b',
+            lambda m: f"NC-{m.group(1)}{_format_route_suffix(m.group(2))}"
+        )
+    ]
+
+    for pattern, formatter in patterns:
+        match = re.search(pattern, normalized)
+        if match:
+            return formatter(match)
+    return None
+
+
+def _extract_route_code_from_label(route_label):
+    """Prefer explicit parenthesized route IDs, then fallback to inline IDs."""
+    if not route_label:
+        return None
+
+    for candidate in re.findall(r'\(([^)]+)\)', route_label):
+        route_code = _extract_route_code(candidate)
+        if route_code:
+            return route_code
+
+    return _extract_route_code(route_label)
+
+
 def _extract_route_label(segment):
     """Extract a clean road/highway label from a route segment string."""
     if not segment:
@@ -338,6 +399,9 @@ def _extract_route_label(segment):
         flags=re.IGNORECASE
     )
     route_label = re.sub(r'\s+', ' ', route_label).strip()
+    route_code = _extract_route_code_from_label(route_label)
+    if route_code:
+        return route_code
     return route_label or None
 
 
@@ -670,6 +734,7 @@ Rules:
 - Do not include ramps in route_segments or intersection.
 - Build intersections from consecutive route segments in order.
 - Each intersection entry must contain adjacent route labels joined by "and" plus ", [City], [State]".
+- Prefer canonical route IDs in intersections (for example: SR-1598, I-40, NC-43) over street names.
 - Use the best city/state inferred from adjacent segments; do not use vague area-only labels.
 - If route_segments has fewer than 2 items, intersection must be [].
 - If a field cannot be determined, use null for strings and [] for arrays.
