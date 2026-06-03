@@ -169,7 +169,7 @@ jobs:
           script_stop: true
           envs: IMAGE_TAG,IMAGE_TAR,PORT,AWS_REGION,AWS_ACCESS_KEY,AWS_SECRET_ACCESS_KEY,AWS_S3_BUCKET,OPENAI_API_KEY
           script: |
-            set -eu
+            set -euo pipefail
 
             echo "[deploy] Starting remote deployment script"
             echo "[deploy] Checking Docker availability"
@@ -279,7 +279,21 @@ jobs:
             fi
 
             for required in AWS_REGION AWS_ACCESS_KEY AWS_SECRET_ACCESS_KEY OPENAI_API_KEY IMAGE_TAG IMAGE_TAR; do
-              eval "value=\${$required:-}"
+              value=""
+              if [ "${required}" = "AWS_REGION" ]; then
+                value="${AWS_REGION:-}"
+              elif [ "${required}" = "AWS_ACCESS_KEY" ]; then
+                value="${AWS_ACCESS_KEY:-}"
+              elif [ "${required}" = "AWS_SECRET_ACCESS_KEY" ]; then
+                value="${AWS_SECRET_ACCESS_KEY:-}"
+              elif [ "${required}" = "OPENAI_API_KEY" ]; then
+                value="${OPENAI_API_KEY:-}"
+              elif [ "${required}" = "IMAGE_TAG" ]; then
+                value="${IMAGE_TAG:-}"
+              elif [ "${required}" = "IMAGE_TAR" ]; then
+                value="${IMAGE_TAR:-}"
+              fi
+
               if [ -z "${value}" ]; then
                 echo "Missing required GitHub Secret: ${required}"
                 exit 1
@@ -306,18 +320,15 @@ jobs:
             gzip -dc "${IMAGE_TAR}" | docker_cmd load
             rm -f "${IMAGE_TAR}"
 
+            echo "[deploy] Resolving image and host architecture"
             normalize_arch() {
-              case "$1" in
-                x86_64|amd64)
-                  echo "amd64"
-                  ;;
-                aarch64|arm64)
-                  echo "arm64"
-                  ;;
-                *)
-                  echo "$1"
-                  ;;
-              esac
+              if [ "$1" = "x86_64" ] || [ "$1" = "amd64" ]; then
+                echo "amd64"
+              elif [ "$1" = "aarch64" ] || [ "$1" = "arm64" ]; then
+                echo "arm64"
+              else
+                echo "$1"
+              fi
             }
 
             HOST_ARCH="$(normalize_arch "$(uname -m)")"
@@ -332,15 +343,19 @@ jobs:
 
             AWS_S3_BUCKET="${AWS_S3_BUCKET:-}"
 
-            {
-              echo "PORT=${APP_PORT}"
-              echo "IMAGE_NAME=${IMAGE_TAG}"
-              echo "AWS_REGION=${AWS_REGION}"
-              echo "AWS_ACCESS_KEY=${AWS_ACCESS_KEY}"
-              echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"
-              echo "AWS_S3_BUCKET=${AWS_S3_BUCKET}"
-              echo "OPENAI_API_KEY=${OPENAI_API_KEY}"
-            } > .env
+            echo "[deploy] Writing runtime environment file"
+            : > .env
+            append_env() {
+              printf '%s=%s\n' "$1" "$2" >> .env
+            }
+
+            append_env PORT "${APP_PORT}"
+            append_env IMAGE_NAME "${IMAGE_TAG}"
+            append_env AWS_REGION "${AWS_REGION}"
+            append_env AWS_ACCESS_KEY "${AWS_ACCESS_KEY}"
+            append_env AWS_SECRET_ACCESS_KEY "${AWS_SECRET_ACCESS_KEY}"
+            append_env AWS_S3_BUCKET "${AWS_S3_BUCKET}"
+            append_env OPENAI_API_KEY "${OPENAI_API_KEY}"
 
             echo "[deploy] Restarting compose service"
             docker_compose -f "${COMPOSE_FILE}" down --remove-orphans || true
