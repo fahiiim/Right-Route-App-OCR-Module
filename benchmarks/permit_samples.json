@@ -1,0 +1,29 @@
+[
+  {
+    "id": "sd-milepost-ordered-route",
+    "ocr_text": "Permit Type: Oversize / Overweight Single Trip\nSTART: I-29 SB at MP ROBERTS 252.65, Sisseton, SD\nTHEN I-90 EB near Sioux Falls, SD\nTHEN SD-11 SB in Sioux Falls, SD\nEND: SD-42 EB at MP MINNEHAHA 12.4, Sioux Falls, SD",
+    "expected": {
+      "min_route_segments": 3,
+      "require_start_end": true,
+      "quality": "complete-route"
+    }
+  },
+  {
+    "id": "table-heavy-permit",
+    "ocr_text": "PERMIT ROUTE TABLE\nSTEP | ROAD | NOTE\n1 | US-75 NB | AT Dodge City, KS\n2 | K-96 EB | NEAR Wichita, KS\n3 | I-35 NB | IN Kansas City, KS\nBEGIN: US-75 NB at Dodge City, KS\nDESTINATION: I-35 NB in Kansas City, KS\nPermit: Overdimension Superload",
+    "expected": {
+      "min_route_segments": 3,
+      "require_start_end": true,
+      "quality": "complete-route"
+    }
+  },
+  {
+    "id": "county-abbrev-format",
+    "ocr_text": "FROM: MN-60 EB near Mankato, MN\nCONTINUE ON I-35 NB through Freeborn CO, MN\nTAKE US-52 NB near Dakota CNTY, MN\nTO: I-494 WB at Bloomington, MN\nPermit Type: Overweight",
+    "expected": {
+      "min_route_segments": 3,
+      "require_start_end": true,
+      "quality": "complete-route"
+    }
+  }
+]

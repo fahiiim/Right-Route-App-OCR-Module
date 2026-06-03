@@ -36,11 +36,34 @@ The Right Route App OCR Module is a robust, enterprise-ready solution that lever
 
 ### Key Capabilities
 
-- 🎯 **Intelligent Text Extraction** - AWS Textract with PyPDF2 fallback for multi-format document support
-- 🤖 **AI-Powered Information Parsing** - OpenAI GPT-3.5 for contextual route intelligence
+- 🎯 **Intelligent Text Extraction** - AWS Textract with multi-page PyMuPDF-first PDF extraction and resilient fallback paths
+- 🤖 **AI-Powered Information Parsing** - OpenAI extraction (gpt-4.1 default, fallback model configurable)
 - 📄 **Multi-Format Support** - PDF, JPG, PNG, GIF, WebP documents
 - 🔍 **Structured Output** - JSON-formatted route data with geographic coordinates
-- ⚡ **High Accuracy** - Optimized for permit documents and travel documents
+- 🛡️ **Reliability-Focused Pipeline** - schema-validated JSON extraction with bounded retries and deterministic fallback parsing
+- 📊 **Measured Quality Gates** - benchmark-driven checks for complete-route, start/end-only, and empty-segment rates
+
+Accuracy note: permit formats differ by state and template, so no OCR+LLM pipeline can guarantee 100% extraction across all future documents. This repository focuses on measurable improvement and safe fallback behavior.
+
+## Reliability and Benchmarking
+
+The extraction internals are hardened while keeping the public API contract unchanged.
+
+- Stage-level classification is captured for OCR, model parsing/validation, and fallback quality.
+- Route extraction can run in enhanced mode (default) or legacy mode using environment flags.
+- CI blocks deploy when regression quality checks fail.
+
+Run the benchmark suite locally:
+
+```bash
+python scripts/run_regression_suite.py --strict --pipeline-mode deterministic --dataset benchmarks/permit_samples.json
+```
+
+Quality metrics tracked:
+
+- `complete_route_rate`
+- `start_end_only_rate`
+- `empty_segment_rate`
 
 ---
 

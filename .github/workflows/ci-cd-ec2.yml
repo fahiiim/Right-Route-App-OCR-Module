@@ -38,6 +38,20 @@ jobs:
         run: |
           python -m compileall -q api.py main.py
 
+      - name: Run contract and pipeline unit tests
+        run: |
+          python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Run extraction regression gate
+        run: |
+          python scripts/run_regression_suite.py \
+            --strict \
+            --pipeline-mode deterministic \
+            --dataset benchmarks/permit_samples.json \
+            --min-complete-rate 0.90 \
+            --max-start-end-only-rate 0.10 \
+            --max-empty-segment-rate 0.10
+
       - name: Build Docker image
         run: docker build -t "${IMAGE_TAG}" .
 
