@@ -202,18 +202,19 @@ jobs:
               fi
             fi
 
+            echo "[debug] Testing docker access"
+            docker info || true
+            id
+            groups
+
             echo "[deploy] Detecting Docker daemon access mode"
-            USE_SUDO_DOCKER=0
-            if docker info >/dev/null 2>&1; then
-              USE_SUDO_DOCKER=0
-            elif [ "${HAS_PASSWORDLESS_SUDO}" -eq 1 ] && sudo -n docker info >/dev/null 2>&1; then
+            if sudo -n docker info >/dev/null 2>&1; then
               USE_SUDO_DOCKER=1
+            elif docker info >/dev/null 2>&1; then
+              USE_SUDO_DOCKER=0
             else
-              echo "Cannot access Docker daemon as user $(id -un)."
-              echo "Ensure Docker service is running and this user has Docker access."
-              if [ "${IS_ROOT}" -eq 0 ] && [ "${HAS_PASSWORDLESS_SUDO}" -eq 0 ]; then
-                echo "Hint: add the deploy user to the docker group and re-login, or enable passwordless sudo."
-              fi
+              echo "Docker is not accessible even with sudo"
+              sudo -n docker info || true
               exit 1
             fi
 
