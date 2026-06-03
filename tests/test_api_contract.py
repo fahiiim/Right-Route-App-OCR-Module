@@ -22,7 +22,7 @@ class ApiContractTests(unittest.TestCase):
                 "start_location": "Sisseton, South Dakota",
                 "end_location": "Sioux Falls, South Dakota",
                 "route_segments": ["I-29, Sisseton, South Dakota", "I-90, Sioux Falls, South Dakota"],
-                "intersection": ["I-29 and I-90"],
+                "intersection": ["I-29 and I-90, Sioux Falls, South Dakota"],
                 "permit_type": "Oversize / Overweight Single Trip",
             },
             "extracted_text": "sample text",

@@ -375,6 +375,36 @@ def _extract_segment_location(segment):
     return location or None
 
 
+def _extract_city_state(location_text):
+    """Extract a normalized city/state pair from location text when available."""
+    text = _safe_string(location_text)
+    if not text:
+        return None
+
+    parts = [part.strip() for part in text.split(',') if part.strip()]
+    if len(parts) < 2:
+        return None
+
+    city = parts[0]
+    state = parts[-1]
+    if not city or not state:
+        return None
+    return f"{city}, {state}"
+
+
+def _extract_segment_city_state(segment):
+    """Extract city/state pair from a normalized route segment."""
+    return _extract_city_state(_extract_segment_location(segment))
+
+
+def _select_intersection_city_state(current_segment, next_segment):
+    """Choose a city/state hint for an intersection between adjacent segments."""
+    next_city_state = _extract_segment_city_state(next_segment)
+    if next_city_state:
+        return next_city_state
+    return _extract_segment_city_state(current_segment)
+
+
 def _normalize_route_segment(segment):
     """Normalize a route segment by removing direction words from the road label."""
     text = _safe_string(segment)
@@ -393,7 +423,7 @@ def _normalize_route_segment(segment):
 
 
 def _normalize_intersection_entry(entry):
-    """Normalize a model-provided intersection into a road-pair string."""
+    """Normalize a model-provided intersection into pair-plus-city/state format."""
     text = _safe_string(entry)
     if not text:
         return None
@@ -403,7 +433,13 @@ def _normalize_intersection_entry(entry):
     text = re.sub(r'\s*,\s*', ', ', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
-    roads_part = text.split(',', 1)[0].strip()
+    if ',' in text:
+        roads_part, location_part = text.split(',', 1)
+        location_part = _extract_city_state(location_part)
+    else:
+        roads_part, location_part = text, None
+
+    roads_part = roads_part.strip()
     roads_part = re.sub(
         r'^\s*(?:intersection(?:\s+of)?|junction(?:\s+of)?)\s+',
         '',
@@ -420,7 +456,10 @@ def _normalize_intersection_entry(entry):
     if not road_a or not road_b:
         return None
 
-    return f"{road_a} and {road_b}"
+    road_pair = f"{road_a} and {road_b}"
+    if location_part:
+        return f"{road_pair}, {location_part}"
+    return road_pair
 
 
 def _build_intersections_from_segments(route_segments):
@@ -433,13 +472,17 @@ def _build_intersections_from_segments(route_segments):
 
         current_route = _extract_route_label(current_segment) or current_segment
         next_route = _extract_route_label(next_segment) or next_segment
-        intersections.append(f"{current_route} and {next_route}")
+        city_state = _select_intersection_city_state(current_segment, next_segment)
+        if city_state:
+            intersections.append(f"{current_route} and {next_route}, {city_state}")
+        else:
+            intersections.append(f"{current_route} and {next_route}")
 
     return intersections
 
 
 def _normalize_intersections(intersection_data, route_segments):
-    """Normalize model intersections and enforce adjacent waypoint-road pairs."""
+    """Normalize model intersections and enforce adjacent waypoint intersection order."""
     expected_count = max(len(route_segments) - 1, 0)
     if expected_count == 0:
         return []
@@ -615,7 +658,7 @@ Extract route information and return ONLY a valid JSON object in this exact stru
     "[Road/Highway], [City], [State]"
   ],
   "intersection": [
-        "[Road from segment i] and [Road from segment i+1]"
+        "[Road from segment i] and [Road from segment i+1], [City], [State]"
   ],
   "permit_type": "[Permit type, e.g., Oversize / Overweight Single Trip]"
 }}
@@ -626,8 +669,8 @@ Rules:
 - Keep route segments in exact travel order.
 - Do not include ramps in route_segments or intersection.
 - Build intersections from consecutive route segments in order.
-- Each intersection entry must contain only adjacent route labels joined by "and".
-- Do not include city, county, state, or area names in intersection entries.
+- Each intersection entry must contain adjacent route labels joined by "and" plus ", [City], [State]".
+- Use the best city/state inferred from adjacent segments; do not use vague area-only labels.
 - If route_segments has fewer than 2 items, intersection must be [].
 - If a field cannot be determined, use null for strings and [] for arrays.
 

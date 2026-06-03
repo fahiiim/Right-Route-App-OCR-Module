@@ -25,8 +25,16 @@ class DeterministicFallbackTests(unittest.TestCase):
         )
         for idx, entry in enumerate(intersections):
             self.assertIn(" and ", entry)
-            self.assertNotIn(",", entry)
-            expected = f"{segments[idx].split(',', 1)[0].strip()} and {segments[idx + 1].split(',', 1)[0].strip()}"
+            road_pair = f"{segments[idx].split(',', 1)[0].strip()} and {segments[idx + 1].split(',', 1)[0].strip()}"
+
+            next_parts = [part.strip() for part in segments[idx + 1].split(",") if part.strip()]
+            if len(next_parts) >= 3:
+                expected = f"{road_pair}, {next_parts[1]}, {next_parts[-1]}"
+            elif len(next_parts) >= 2:
+                expected = f"{road_pair}, {next_parts[-1]}"
+            else:
+                expected = road_pair
+
             self.assertEqual(entry, expected)
         self.assertEqual(classify_route_quality(route_info), "complete-route")
 
