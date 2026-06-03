@@ -378,36 +378,20 @@ jobs:
               return 2
             }
 
-            ATTEMPTS=40
-            COUNT=1
-            until [ "${COUNT}" -gt "${ATTEMPTS}" ]; do
-              CONTAINER_STATE="$(docker_cmd inspect --format '{{.State.Status}}' right-route-ocr-api 2>/dev/null || true)"
-              CONTAINER_HEALTH="$(docker_cmd inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' right-route-ocr-api 2>/dev/null || true)"
+            echo "[deploy] Waiting for service to be ready..."
 
-              if [ "${CONTAINER_STATE}" = "exited" ] || [ "${CONTAINER_STATE}" = "dead" ]; then
-                echo "Container stopped unexpectedly during deployment."
-                docker_compose -f "${COMPOSE_FILE}" ps || true
-                docker_compose -f "${COMPOSE_FILE}" logs --tail=200 || true
-                exit 1
-              fi
-
-              if http_ready; then
-                echo "Deployment successful. HTTP health check passed at ${HEALTH_URL}."
+            for i in $(seq 1 60); do
+              if curl -sf "http://127.0.0.1:${APP_PORT}/" >/dev/null; then
+                echo "Deployment successful ✅"
                 exit 0
               fi
 
-              if [ "${CONTAINER_HEALTH}" = "healthy" ]; then
-                echo "Deployment successful. Container health is healthy."
-                exit 0
-              fi
-
-              if [ "${COUNT}" -eq 1 ] || [ $((COUNT % 5)) -eq 0 ]; then
-                echo "Waiting for readiness (${COUNT}/${ATTEMPTS}) state=${CONTAINER_STATE:-unknown} health=${CONTAINER_HEALTH:-unknown}"
-              fi
-
-              sleep 3
-              COUNT=$((COUNT + 1))
+              sleep 2
             done
+
+            echo "Health check failed after timeout"
+            docker logs right-route-ocr-api --tail 200 || true
+            exit 1
 
             echo "Health check failed after deployment."
             docker_compose -f "${COMPOSE_FILE}" ps || true
