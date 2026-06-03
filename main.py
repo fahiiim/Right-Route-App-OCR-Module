@@ -393,32 +393,34 @@ def _normalize_route_segment(segment):
 
 
 def _normalize_intersection_entry(entry):
-    """Normalize intersection text formatting to a consistent style."""
+    """Normalize a model-provided intersection into a road-pair string."""
     text = _safe_string(entry)
     if not text:
         return None
 
     text = re.sub(r'\s+near\s+', ', ', text, flags=re.IGNORECASE)
+    text = text.replace('&', ' and ')
     text = re.sub(r'\s*,\s*', ', ', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
-    if ',' in text:
-        roads_part, location_part = text.split(',', 1)
-        location_part = location_part.strip()
-    else:
-        roads_part, location_part = text, None
+    roads_part = text.split(',', 1)[0].strip()
+    roads_part = re.sub(
+        r'^\s*(?:intersection(?:\s+of)?|junction(?:\s+of)?)\s+',
+        '',
+        roads_part,
+        flags=re.IGNORECASE
+    )
 
     match = re.match(r'^\s*(.*?)\s+and\s+(.*?)\s*$', roads_part, flags=re.IGNORECASE)
-    if match:
-        road_a = _strip_direction_suffix(match.group(1).strip()) or match.group(1).strip()
-        road_b = _strip_direction_suffix(match.group(2).strip()) or match.group(2).strip()
-        roads_part = f"{road_a} and {road_b}"
-    else:
-        roads_part = _strip_direction_suffix(roads_part) or roads_part
+    if not match:
+        return None
 
-    if location_part:
-        return f"{roads_part}, {location_part}"
-    return roads_part or None
+    road_a = _strip_direction_suffix(match.group(1).strip()) or match.group(1).strip()
+    road_b = _strip_direction_suffix(match.group(2).strip()) or match.group(2).strip()
+    if not road_a or not road_b:
+        return None
+
+    return f"{road_a} and {road_b}"
 
 
 def _build_intersections_from_segments(route_segments):
@@ -431,40 +433,33 @@ def _build_intersections_from_segments(route_segments):
 
         current_route = _extract_route_label(current_segment) or current_segment
         next_route = _extract_route_label(next_segment) or next_segment
-        location = _extract_segment_location(current_segment) or _extract_segment_location(next_segment)
-
-        if location:
-            intersections.append(f"{current_route} and {next_route}, {location}")
-        else:
-            intersections.append(f"{current_route} and {next_route}")
+        intersections.append(f"{current_route} and {next_route}")
 
     return intersections
 
 
 def _normalize_intersections(intersection_data, route_segments):
-    """Normalize model intersections and guarantee pairwise count/order."""
+    """Normalize model intersections and enforce adjacent waypoint-road pairs."""
     expected_count = max(len(route_segments) - 1, 0)
     if expected_count == 0:
         return []
+
+    generated = _build_intersections_from_segments(route_segments)
 
     normalized = []
     for item in _safe_string_list(intersection_data):
         normalized_item = _normalize_intersection_entry(item)
         if normalized_item and not _contains_ramp(normalized_item):
             normalized.append(normalized_item)
-    generated = _build_intersections_from_segments(route_segments)
 
-    if len(normalized) == expected_count:
-        return normalized
-
-    if not normalized:
+    if len(normalized) != expected_count:
         return generated
 
-    adjusted = normalized[:expected_count]
-    if len(adjusted) < expected_count:
-        adjusted.extend(generated[len(adjusted):expected_count])
+    for idx, expected in enumerate(generated):
+        if normalized[idx].lower() != expected.lower():
+            return generated
 
-    return adjusted
+    return normalized
 
 
 def normalize_route_information(route_info):
@@ -620,7 +615,7 @@ Extract route information and return ONLY a valid JSON object in this exact stru
     "[Road/Highway], [City], [State]"
   ],
   "intersection": [
-    "[Road from segment i] and [Road from segment i+1], [City], [State]"
+        "[Road from segment i] and [Road from segment i+1]"
   ],
   "permit_type": "[Permit type, e.g., Oversize / Overweight Single Trip]"
 }}
@@ -631,6 +626,8 @@ Rules:
 - Keep route segments in exact travel order.
 - Do not include ramps in route_segments or intersection.
 - Build intersections from consecutive route segments in order.
+- Each intersection entry must contain only adjacent route labels joined by "and".
+- Do not include city, county, state, or area names in intersection entries.
 - If route_segments has fewer than 2 items, intersection must be [].
 - If a field cannot be determined, use null for strings and [] for arrays.
 

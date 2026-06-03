@@ -14,13 +14,20 @@ class DeterministicFallbackTests(unittest.TestCase):
         """
 
         route_info = extract_route_information_deterministic(ocr_text)
+        segments = route_info.get("route_segments", [])
+        intersections = route_info.get("intersection", [])
 
         self.assertIsInstance(route_info, dict)
-        self.assertGreaterEqual(len(route_info.get("route_segments", [])), 3)
+        self.assertGreaterEqual(len(segments), 3)
         self.assertEqual(
-            len(route_info.get("intersection", [])),
-            max(len(route_info.get("route_segments", [])) - 1, 0),
+            len(intersections),
+            max(len(segments) - 1, 0),
         )
+        for idx, entry in enumerate(intersections):
+            self.assertIn(" and ", entry)
+            self.assertNotIn(",", entry)
+            expected = f"{segments[idx].split(',', 1)[0].strip()} and {segments[idx + 1].split(',', 1)[0].strip()}"
+            self.assertEqual(entry, expected)
         self.assertEqual(classify_route_quality(route_info), "complete-route")
 
 
