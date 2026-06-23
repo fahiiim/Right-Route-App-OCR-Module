@@ -34,6 +34,8 @@
 
 The Right Route App OCR Module is a robust, enterprise-ready solution that leverages advanced Optical Character Recognition (OCR) and Artificial Intelligence to automatically extract route information from permit documents. Built with AWS Textract and OpenAI's GPT-3.5, this module provides accurate, structured data extraction with minimal human intervention.
 
+Live IP Link: http://16.192.4.30:8001/docs#/
+
 ### Key Capabilities
 
 - 🎯 **Intelligent Text Extraction** - AWS Textract with multi-page PyMuPDF-first PDF extraction and resilient fallback paths
