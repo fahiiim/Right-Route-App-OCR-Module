@@ -287,7 +287,10 @@ def expand_abbreviations_in_dict(obj):
 
 def allowed_file(filename):
     """Check if file extension is allowed"""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    if not filename:
+        return False
+    normalized = filename.strip().lower()
+    return '.' in normalized and normalized.rsplit('.', 1)[1] in ALLOWED_EXTENSIONS
 
 
 def _safe_string(value):
@@ -1578,6 +1581,51 @@ def process_document(file_path):
             "route_information": route_info
         }
         
+    except RouteExtractionError:
+        raise
+    except Exception as e:
+        print(f" Error: {str(e)}")
+        return None
+
+
+def process_document_text(extracted_text, source_name="input-string"):
+    """Process raw text input and extract route information."""
+    try:
+        if extracted_text is None:
+            raise RouteExtractionError(
+                "Text input is missing.",
+                status_code=400,
+                code="missing_text_input"
+            )
+
+        normalized_text = _normalize_ocr_text(extracted_text)
+        if not normalized_text:
+            raise RouteExtractionError(
+                "Text input is empty.",
+                status_code=400,
+                code="empty_text_input"
+            )
+
+        route_info, diagnostics = extract_route_information_with_diagnostics(normalized_text)
+
+        if EXTRACTION_STAGE_LOGGING:
+            stage_summary = {
+                'pipeline_mode': diagnostics.get('pipeline_mode'),
+                'profile': diagnostics.get('profile', {}).get('profile'),
+                'quality': diagnostics.get('quality_classification'),
+                'final_source': diagnostics.get('final_source'),
+                'model_attempts': len(diagnostics.get('model_attempts', [])),
+                'fallback_quality': diagnostics.get('fallback_quality')
+            }
+            print("\n Extraction diagnostics (text input):")
+            print(json.dumps(stage_summary, indent=2))
+
+        return {
+            "filename": source_name,
+            "extracted_text": normalized_text,
+            "route_information": route_info
+        }
+
     except RouteExtractionError:
         raise
     except Exception as e:

@@ -3,11 +3,12 @@ import json
 import tempfile
 import sys
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from main import (
     process_document,
+    process_document_text,
     ALLOWED_EXTENSIONS,
     allowed_file,
     RouteExtractionError
@@ -28,7 +29,6 @@ app = FastAPI(
 # In-memory storage for extracted OCR results
 extracted_data = {}
 
-
 @app.post("/api/ocr/extract")
 async def extract_route_information(file: UploadFile = File(...)):
     """
@@ -48,15 +48,19 @@ async def extract_route_information(file: UploadFile = File(...)):
                 detail=f"File type not allowed. Supported: {', '.join(ALLOWED_EXTENSIONS)}"
             )
         
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_file_path = temp_file.name
-        
+        temp_file_path = None
         try:
             # Process the document
             try:
+                # Save uploaded file temporarily
+                with tempfile.NamedTemporaryFile(
+                    delete=False,
+                    suffix=Path(file.filename).suffix
+                ) as temp_file:
+                    content = await file.read()
+                    temp_file.write(content)
+                    temp_file_path = temp_file.name
+
                 result = process_document(temp_file_path)
             except RouteExtractionError as e:
                 raise HTTPException(
@@ -88,13 +92,60 @@ async def extract_route_information(file: UploadFile = File(...)):
         
         finally:
             # Clean up temporary file
-            if os.path.exists(temp_file_path):
+            if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
     
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")
+
+
+@app.post("/api/ocr/extract-text")
+async def extract_route_information_text(text: str = Form(...)):
+    """
+    Submit raw text and extract route information.
+
+    - **text**: OCR text to process
+    - **Returns**: Extracted route information with segments
+    """
+    try:
+        if not text or not text.strip():
+            raise HTTPException(status_code=400, detail="Text input is required")
+
+        try:
+            result = process_document_text(text, source_name="input-string")
+        except RouteExtractionError as e:
+            raise HTTPException(
+                status_code=e.status_code,
+                detail={
+                    "message": str(e),
+                    "code": e.code
+                }
+            )
+
+        if result is None:
+            raise HTTPException(status_code=500, detail="Failed to process text input")
+
+        extracted_data[result["filename"]] = {
+            "filename": result["filename"],
+            "route_information": result["route_information"],
+            "extracted_text": result.get("extracted_text", "")
+        }
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "filename": result["filename"],
+                "route_information": result["route_information"]
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing text: {str(e)}")
     
 
 

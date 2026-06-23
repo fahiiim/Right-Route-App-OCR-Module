@@ -53,6 +53,29 @@ class ApiContractTests(unittest.TestCase):
         self.assertIsInstance(route_information["route_segments"], list)
         self.assertIsInstance(route_information["intersection"], list)
 
+    @patch("api.process_document_text")
+    def test_extract_accepts_text_input(self, mock_process_document_text):
+        mock_process_document_text.return_value = {
+            "filename": "input-string",
+            "route_information": {
+                "start_location": "Sisseton, South Dakota",
+                "end_location": "Sioux Falls, South Dakota",
+                "route_segments": ["I-29, Sisseton, South Dakota", "I-90, Sioux Falls, South Dakota"],
+                "intersection": ["I-29 and I-90, Sioux Falls, South Dakota"],
+                "permit_type": "Oversize / Overweight Single Trip",
+            },
+            "extracted_text": "sample text",
+        }
+
+        response = self.client.post(
+            "/api/ocr/extract-text",
+            data={"text": "sample text"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(set(payload.keys()), {"success", "filename", "route_information"})
+
     def test_supported_formats_contract(self):
         response = self.client.get("/api/supported-formats")
         self.assertEqual(response.status_code, 200)
