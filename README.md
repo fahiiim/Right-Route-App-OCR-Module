@@ -566,12 +566,12 @@ MIT License - See [LICENSE](LICENSE) for details
 │  └─ FastAPI + Uvicorn                │
 │                                      │
 │  Processing Layer                    │
-│  ├─ AWS Textract (OCR)              │
-│  ├─ PyMuPDF (PDF handling)          │
-│  └─ Pillow (Image processing)       │
+│  ├─ AWS Textract (OCR)               │
+│  ├─ PyMuPDF (PDF handling)           │
+│  └─ Pillow (Image processing)        │
 │                                      │
 │  Intelligence Layer                  │
-│  └─ OpenAI GPT models (NLP)         │
+│  └─ OpenAI GPT models (NLP)          │
 │                                      │
 │  Infrastructure                      │
 │  ├─ Docker / Docker Compose          │
