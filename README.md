@@ -295,13 +295,13 @@ done
 
 ### Supported File Formats
 
-| Format | Extension | Support |
-|--------|-----------|---------|
-| PDF    | `.pdf`    | ✅ Full |
+| Format | Extension | Support        |
+|--------|-----------|----------------|
+| PDF    | `.pdf`    | ✅ Full       |
 | JPEG   | `.jpg`, `.jpeg` | ✅ Full |
-| PNG    | `.png`    | ✅ Full |
-| GIF    | `.gif`    | ✅ Full |
-| WebP   | `.webp`   | ✅ Full |
+| PNG    | `.png`    | ✅ Full       |
+| GIF    | `.gif`    | ✅ Full       |
+| WebP   | `.webp`   | ✅ Full       |
 
 ### Output Format
 
